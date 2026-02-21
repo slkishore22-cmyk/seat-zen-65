@@ -136,18 +136,24 @@
 
   /* Seat card styles */
   .seat-card {
-    @apply flex items-center justify-center rounded-lg font-semibold text-xs transition-all duration-200;
-    width: 56px;
-    height: 44px;
+    @apply flex items-center justify-center font-semibold text-[10px] transition-all duration-200;
+    width: 72px;
+    height: 32px;
+    border-radius: 6px;
   }
 
   .seat-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   }
 
   .seat-empty {
-    @apply seat-card border-2 border-dashed border-border text-muted-foreground;
+    @apply flex items-center justify-center text-muted-foreground;
+    width: 72px;
+    height: 32px;
+    border-radius: 6px;
+    border: 1.5px dashed hsl(var(--border));
+    font-size: 10px;
   }
 
   /* Conflict pulse */

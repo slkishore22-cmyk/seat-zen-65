@@ -143,10 +143,10 @@ const Step4RoomTable = ({
                 <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest text-center mb-3">
                   Column {ci + 1}
                 </h4>
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-1.5">
                   {colSeats.map((row, ri) => (
-                    <div key={ri} className="flex items-center gap-1.5">
-                      <span className="text-[9px] text-muted-foreground w-5 text-right mr-1">R{ri + 1}</span>
+                    <div key={ri} className="flex items-center gap-1">
+                      <span className="text-[9px] text-muted-foreground w-5 text-right mr-0.5 select-none">R{ri + 1}</span>
                       {row.map((seat, si) => {
                         const idx = startIdx + ri * col.subColumns + si;
                         return (
