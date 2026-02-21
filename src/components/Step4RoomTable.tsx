@@ -26,7 +26,7 @@ const Step4RoomTable = ({
   setConflictCount, setOverflow, shuffleType, onNewRoom, onSave, readOnly,
 }: Props) => {
   const [animKey, setAnimKey] = useState(0);
-  const conflictSet = useMemo(() => getConflictIndices(seatMap), [seatMap]);
+  const conflictSet = useMemo(() => getConflictIndices(seatMap, layout), [seatMap, layout]);
 
   const handleReshuffle = useCallback(() => {
     // Shuffle groups to get different seed
