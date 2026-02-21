@@ -144,72 +144,36 @@ function createEmptyGrid(layout: RoomLayout): Seat[] {
   return seats;
 }
 
+// Calculate total capacity
+// (already exported above)
+
+// Distribute students across columns proportionally
+function distributeToColumns(pool: { roll: string; groupId: string; color: string; hex: string }[], layout: RoomLayout): { roll: string; groupId: string; color: string; hex: string }[][] {
+  const capacities = layout.columns.map(col => col.subColumns * col.rows);
+  const totalCapacity = capacities.reduce((a, b) => a + b, 0);
+  const totalStudents = pool.length;
+
+  const counts = capacities.map(cap => Math.round(totalStudents * (cap / totalCapacity)));
+  // Adjust last column for rounding remainder
+  const assigned = counts.reduce((a, b) => a + b, 0);
+  counts[counts.length - 1] += totalStudents - assigned;
+
+  const result: typeof pool[] = [];
+  let offset = 0;
+  for (const count of counts) {
+    result.push(pool.slice(offset, offset + count));
+    offset += count;
+  }
+  return result;
+}
+
 // Step C — Normal Shuffle
 export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Seat[]; overflow: string[] } {
   const seats = createEmptyGrid(layout);
   const numGroups = groups.length;
   if (numGroups === 0) return { seats, overflow: [] };
 
-  // Track how many we've used from each group
-  const groupPointers = new Array(numGroups).fill(0);
-  const overflow: string[] = [];
-
-  for (const seat of seats) {
-    const groupIdx = seat.subColumnIndex % numGroups;
-    const group = groups[groupIdx];
-    if (groupPointers[groupIdx] < group.members.length) {
-      seat.rollNumber = group.members[groupPointers[groupIdx]];
-      seat.groupId = group.id;
-      seat.color = group.color;
-      seat.hex = group.hex;
-      groupPointers[groupIdx]++;
-    }
-  }
-
-  // Collect overflow (unplaced students)
-  for (let g = 0; g < numGroups; g++) {
-    for (let i = groupPointers[g]; i < groups[g].members.length; i++) {
-      overflow.push(groups[g].members[i]);
-    }
-  }
-
-  return { seats, overflow };
-}
-
-// Get neighbors of a seat in the grid
-function getNeighborIndices(seats: Seat[], idx: number): number[] {
-  const seat = seats[idx];
-  const neighbors: number[] = [];
-  for (let j = 0; j < seats.length; j++) {
-    if (j === idx) continue;
-    const other = seats[j];
-    if (other.columnIndex !== seat.columnIndex) continue;
-    // Same column — check adjacency
-    const sameRow = other.rowIndex === seat.rowIndex && Math.abs(other.subColumnIndex - seat.subColumnIndex) === 1;
-    const sameSubCol = other.subColumnIndex === seat.subColumnIndex && Math.abs(other.rowIndex - seat.rowIndex) === 1;
-    if (sameRow || sameSubCol) neighbors.push(j);
-  }
-  return neighbors;
-}
-
-// Check if placing groupId at idx causes conflict
-function hasConflict(seats: Seat[], idx: number, groupId: string): boolean {
-  const neighbors = getNeighborIndices(seats, idx);
-  return neighbors.some(n => seats[n].groupId === groupId);
-}
-
-// Step D — University Shuffle
-export function universityShuffle(groups: Group[], layout: RoomLayout): { seats: Seat[]; overflow: string[]; conflictCount: number } {
-  const seats = createEmptyGrid(layout);
-  const numGroups = groups.length;
-
-  if (numGroups <= 1) {
-    // Can't avoid adjacency with 1 group — fallback to normal
-    const result = normalShuffle(groups, layout);
-    return { ...result, conflictCount: 0 };
-  }
-
-  // Phase 1 — Interleave
+  // Build interleaved pool
   const maxLen = Math.max(...groups.map(g => g.members.length));
   const pool: { roll: string; groupId: string; color: string; hex: string }[] = [];
   for (let i = 0; i < maxLen; i++) {
@@ -220,95 +184,189 @@ export function universityShuffle(groups: Group[], layout: RoomLayout): { seats:
     }
   }
 
-  const overflow: string[] = [];
   const capacity = seats.length;
+  const overflow = pool.slice(capacity).map(p => p.roll);
   const toPlace = pool.slice(0, capacity);
-  for (let i = capacity; i < pool.length; i++) {
-    overflow.push(pool[i].roll);
-  }
 
-  // Phase 2 — Constraint-based placement
-  const remaining = [...toPlace];
+  // Distribute across columns proportionally
+  const columnPools = distributeToColumns(toPlace, layout);
 
-  for (let idx = 0; idx < seats.length && remaining.length > 0; idx++) {
-    // Find first student that doesn't conflict
-    let placed = false;
-    for (let j = 0; j < remaining.length; j++) {
-      if (!hasConflict(seats, idx, remaining[j].groupId)) {
-        const student = remaining.splice(j, 1)[0];
-        seats[idx].rollNumber = student.roll;
-        seats[idx].groupId = student.groupId;
-        seats[idx].color = student.color;
-        seats[idx].hex = student.hex;
-        placed = true;
-        break;
-      }
+  // Fill each column: assign subCol to a group, fill top-to-bottom
+  let seatIdx = 0;
+  for (let c = 0; c < layout.columns.length; c++) {
+    const col = layout.columns[c];
+    const colPool = columnPools[c];
+
+    // Split column pool back into per-group queues
+    const groupQueues = new Map<string, typeof colPool>();
+    for (const g of groups) groupQueues.set(g.id, []);
+    for (const s of colPool) {
+      groupQueues.get(s.groupId)?.push(s);
     }
-    if (!placed && remaining.length > 0) {
-      // Place anyway, fix in phase 3
-      const student = remaining.shift()!;
-      seats[idx].rollNumber = student.roll;
-      seats[idx].groupId = student.groupId;
-      seats[idx].color = student.color;
-      seats[idx].hex = student.hex;
-    }
-  }
 
-  // Phase 3 — Conflict resolution (max 100 iterations)
-  for (let iter = 0; iter < 100; iter++) {
-    let swapped = false;
-    for (let i = 0; i < seats.length; i++) {
-      if (!seats[i].groupId) continue;
-      if (!hasConflict(seats, i, seats[i].groupId!)) continue;
+    for (let sc = 0; sc < col.subColumns; sc++) {
+      const assignedGroupIdx = sc % numGroups;
+      const assignedGroup = groups[assignedGroupIdx];
+      const queue = groupQueues.get(assignedGroup.id)!;
 
-      // Find a swap candidate
-      for (let j = 0; j < seats.length; j++) {
-        if (i === j || !seats[j].groupId || seats[j].groupId === seats[i].groupId) continue;
-        // Check if swapping resolves both
-        const gi = seats[i].groupId!, gj = seats[j].groupId!;
-        // Temporarily swap
-        const tempRoll = seats[i].rollNumber;
-        const tempGroup = seats[i].groupId;
-        const tempColor = seats[i].color;
-        const tempHex = seats[i].hex;
-
-        seats[i].rollNumber = seats[j].rollNumber;
-        seats[i].groupId = seats[j].groupId;
-        seats[i].color = seats[j].color;
-        seats[i].hex = seats[j].hex;
-
-        seats[j].rollNumber = tempRoll;
-        seats[j].groupId = tempGroup;
-        seats[j].color = tempColor;
-        seats[j].hex = tempHex;
-
-        const iOk = !hasConflict(seats, i, seats[i].groupId!);
-        const jOk = !hasConflict(seats, j, seats[j].groupId!);
-
-        if (iOk && jOk) {
-          swapped = true;
-          break;
-        } else {
-          // Revert
-          seats[j].rollNumber = seats[i].rollNumber;
-          seats[j].groupId = seats[i].groupId;
-          seats[j].color = seats[i].color;
-          seats[j].hex = seats[i].hex;
-
-          seats[i].rollNumber = tempRoll;
-          seats[i].groupId = tempGroup;
-          seats[i].color = tempColor;
-          seats[i].hex = tempHex;
+      for (let r = 0; r < col.rows; r++) {
+        const idx = seatIdx + r * col.subColumns + sc;
+        if (queue.length > 0) {
+          const student = queue.shift()!;
+          seats[idx].rollNumber = student.roll;
+          seats[idx].groupId = student.groupId;
+          seats[idx].color = student.color;
+          seats[idx].hex = student.hex;
         }
       }
     }
-    if (!swapped) break;
+
+    // Place any remaining students from other groups into empty seats
+    const remaining: typeof colPool = [];
+    for (const q of groupQueues.values()) remaining.push(...q);
+    if (remaining.length > 0) {
+      for (let r = 0; r < col.rows; r++) {
+        for (let sc = 0; sc < col.subColumns; sc++) {
+          const idx = seatIdx + r * col.subColumns + sc;
+          if (!seats[idx].rollNumber && remaining.length > 0) {
+            const student = remaining.shift()!;
+            seats[idx].rollNumber = student.roll;
+            seats[idx].groupId = student.groupId;
+            seats[idx].color = student.color;
+            seats[idx].hex = student.hex;
+          }
+        }
+      }
+    }
+
+    seatIdx += col.subColumns * col.rows;
   }
 
-  // Phase 4 — Count remaining conflicts
+  return { seats, overflow };
+}
+
+// Check full-row conflict: no two same-group students in the same row within a column
+function hasRowConflict(seats: Seat[], layout: RoomLayout, idx: number, groupId: string): boolean {
+  const seat = seats[idx];
+  // Find the start index of this column
+  let colStart = 0;
+  let col: ColumnConfig | null = null;
+  for (let c = 0; c < layout.columns.length; c++) {
+    const size = layout.columns[c].subColumns * layout.columns[c].rows;
+    if (idx < colStart + size) {
+      col = layout.columns[c];
+      break;
+    }
+    colStart += size;
+  }
+  if (!col) return false;
+
+  const localIdx = idx - colStart;
+  const row = Math.floor(localIdx / col.subColumns);
+
+  // Check all other seats in the same row
+  for (let sc = 0; sc < col.subColumns; sc++) {
+    const otherIdx = colStart + row * col.subColumns + sc;
+    if (otherIdx === idx) continue;
+    if (seats[otherIdx].groupId === groupId) return true;
+  }
+
+  // Check vertical neighbors (top and bottom in same subCol)
+  const subCol = localIdx % col.subColumns;
+  if (row > 0) {
+    const topIdx = colStart + (row - 1) * col.subColumns + subCol;
+    if (seats[topIdx].groupId === groupId) return true;
+  }
+  if (row < col.rows - 1) {
+    const bottomIdx = colStart + (row + 1) * col.subColumns + subCol;
+    if (seats[bottomIdx].groupId === groupId) return true;
+  }
+
+  return false;
+}
+
+// Step D — University Shuffle
+export function universityShuffle(groups: Group[], layout: RoomLayout): { seats: Seat[]; overflow: string[]; conflictCount: number } {
+  const seats = createEmptyGrid(layout);
+  const numGroups = groups.length;
+
+  if (numGroups <= 1) {
+    const result = normalShuffle(groups, layout);
+    return { ...result, conflictCount: 0 };
+  }
+
+  // Build interleaved pool
+  const maxLen = Math.max(...groups.map(g => g.members.length));
+  const pool: { roll: string; groupId: string; color: string; hex: string }[] = [];
+  for (let i = 0; i < maxLen; i++) {
+    for (const g of groups) {
+      if (i < g.members.length) {
+        pool.push({ roll: g.members[i], groupId: g.id, color: g.color, hex: g.hex });
+      }
+    }
+  }
+
+  const capacity = seats.length;
+  const overflow = pool.slice(capacity).map(p => p.roll);
+  const toPlace = pool.slice(0, capacity);
+
+  // Distribute across columns proportionally
+  const columnPools = distributeToColumns(toPlace, layout);
+
+  // Fill each column using row-offset rotation
+  let seatIdx = 0;
+  for (let c = 0; c < layout.columns.length; c++) {
+    const col = layout.columns[c];
+    const colPool = columnPools[c];
+
+    // Split into per-group queues
+    const groupQueues = new Map<string, typeof colPool>();
+    for (const g of groups) groupQueues.set(g.id, []);
+    for (const s of colPool) {
+      groupQueues.get(s.groupId)?.push(s);
+    }
+
+    for (let r = 0; r < col.rows; r++) {
+      const startGroup = r % numGroups;
+      for (let sc = 0; sc < col.subColumns; sc++) {
+        const targetGroupIdx = (startGroup + sc) % numGroups;
+        const targetGroup = groups[targetGroupIdx];
+        const queue = groupQueues.get(targetGroup.id)!;
+        const idx = seatIdx + r * col.subColumns + sc;
+
+        if (queue.length > 0) {
+          const student = queue.shift()!;
+          seats[idx].rollNumber = student.roll;
+          seats[idx].groupId = student.groupId;
+          seats[idx].color = student.color;
+          seats[idx].hex = student.hex;
+        } else {
+          // Fallback: find any group with remaining students
+          let placed = false;
+          for (let g = 0; g < numGroups; g++) {
+            const fallbackIdx = (targetGroupIdx + g) % numGroups;
+            const fallbackQueue = groupQueues.get(groups[fallbackIdx].id)!;
+            if (fallbackQueue.length > 0) {
+              const student = fallbackQueue.shift()!;
+              seats[idx].rollNumber = student.roll;
+              seats[idx].groupId = student.groupId;
+              seats[idx].color = student.color;
+              seats[idx].hex = student.hex;
+              placed = true;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    seatIdx += col.subColumns * col.rows;
+  }
+
+  // Count conflicts using full-row check
   let conflictCount = 0;
   for (let i = 0; i < seats.length; i++) {
-    if (seats[i].groupId && hasConflict(seats, i, seats[i].groupId!)) {
+    if (seats[i].groupId && hasRowConflict(seats, layout, i, seats[i].groupId!)) {
       conflictCount++;
     }
   }
@@ -316,11 +374,12 @@ export function universityShuffle(groups: Group[], layout: RoomLayout): { seats:
   return { seats, overflow, conflictCount };
 }
 
-// Get conflict seat indices
-export function getConflictIndices(seats: Seat[]): Set<number> {
+// Get conflict seat indices (uses full-row conflict check)
+export function getConflictIndices(seats: Seat[], layout?: RoomLayout): Set<number> {
   const conflicts = new Set<number>();
+  if (!layout) return conflicts;
   for (let i = 0; i < seats.length; i++) {
-    if (seats[i].groupId && hasConflict(seats, i, seats[i].groupId!)) {
+    if (seats[i].groupId && hasRowConflict(seats, layout, i, seats[i].groupId!)) {
       conflicts.add(i);
     }
   }
