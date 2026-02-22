@@ -47,24 +47,9 @@ export function parseRollNumbers(raw: string): string[] {
   return [...new Set(tokens)];
 }
 
-// Natural sort comparator
+// Natural sort comparator — handles alphanumeric correctly (e.g. 25CS9 < 25CS10)
 function naturalCompare(a: string, b: string): number {
-  const ax: (string | number)[] = [];
-  const bx: (string | number)[] = [];
-  a.replace(/(\d+)|(\D+)/g, (_, $1, $2) => { ax.push($1 ? parseInt($1) : $2); return ''; });
-  b.replace(/(\d+)|(\D+)/g, (_, $1, $2) => { bx.push($1 ? parseInt($1) : $2); return ''; });
-  for (let i = 0; i < Math.max(ax.length, bx.length); i++) {
-    if (i >= ax.length) return -1;
-    if (i >= bx.length) return 1;
-    const ai = ax[i], bi = bx[i];
-    if (typeof ai === 'number' && typeof bi === 'number') {
-      if (ai !== bi) return ai - bi;
-    } else {
-      const cmp = String(ai).localeCompare(String(bi));
-      if (cmp !== 0) return cmp;
-    }
-  }
-  return 0;
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
 }
 
 // Step B — Auto Grouper
@@ -153,8 +138,8 @@ function distributeToColumns(pool: { roll: string; groupId: string; color: strin
   const totalCapacity = capacities.reduce((a, b) => a + b, 0);
   const totalStudents = pool.length;
 
-  const counts = capacities.map(cap => Math.round(totalStudents * (cap / totalCapacity)));
-  // Adjust last column for rounding remainder
+  const counts = capacities.map(cap => Math.floor(totalStudents * (cap / totalCapacity)));
+  // Give all remaining students to the last column
   const assigned = counts.reduce((a, b) => a + b, 0);
   counts[counts.length - 1] += totalStudents - assigned;
 
