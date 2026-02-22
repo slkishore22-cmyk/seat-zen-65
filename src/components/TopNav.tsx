@@ -1,11 +1,12 @@
 import { LayoutGrid, Archive } from "lucide-react";
+import { useNavigate, useLocation } from "react-router-dom";
 
-interface TopNavProps {
-  activeTab: "new" | "saved";
-  onTabChange: (tab: "new" | "saved") => void;
-}
+const TopNav = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const isWizard = location.pathname === "/";
+  const isSaved = location.pathname === "/saved";
 
-const TopNav = ({ activeTab, onTabChange }: TopNavProps) => {
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 glass-card" style={{ borderRadius: 0, borderTop: "none", borderLeft: "none", borderRight: "none" }}>
       <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
@@ -15,9 +16,9 @@ const TopNav = ({ activeTab, onTabChange }: TopNavProps) => {
 
         <div className="flex items-center gap-1 p-1 rounded-pill bg-secondary">
           <button
-            onClick={() => onTabChange("new")}
+            onClick={() => navigate("/")}
             className={`flex items-center gap-1.5 px-4 py-1.5 rounded-pill text-sm font-medium transition-all duration-200 ${
-              activeTab === "new"
+              isWizard
                 ? "bg-primary text-primary-foreground"
                 : "text-muted-foreground hover:text-foreground"
             }`}
@@ -26,9 +27,9 @@ const TopNav = ({ activeTab, onTabChange }: TopNavProps) => {
             New Room
           </button>
           <button
-            onClick={() => onTabChange("saved")}
+            onClick={() => navigate("/saved")}
             className={`flex items-center gap-1.5 px-4 py-1.5 rounded-pill text-sm font-medium transition-all duration-200 ${
-              activeTab === "saved"
+              isSaved
                 ? "bg-primary text-primary-foreground"
                 : "text-muted-foreground hover:text-foreground"
             }`}
