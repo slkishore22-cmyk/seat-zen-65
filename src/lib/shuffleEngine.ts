@@ -153,19 +153,19 @@ function distributeToColumns(pool: { roll: string; groupId: string; color: strin
 }
 
 // Step C — Normal Shuffle
+// Sequential fill: sort groups by size descending, concatenate into one flat pool,
+// then fill sub-column by sub-column, top to bottom, left to right.
 export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Seat[]; overflow: string[] } {
   const seats = createEmptyGrid(layout);
-  const numGroups = groups.length;
-  if (numGroups === 0) return { seats, overflow: [] };
+  if (groups.length === 0) return { seats, overflow: [] };
 
-  // Build interleaved pool
-  const maxLen = Math.max(...groups.map(g => g.members.length));
+  // Sort groups by size descending, then build one flat sequential pool
+  const sortedGroups = [...groups].sort((a, b) => b.members.length - a.members.length);
   const pool: { roll: string; groupId: string; color: string; hex: string }[] = [];
-  for (let i = 0; i < maxLen; i++) {
-    for (const g of groups) {
-      if (i < g.members.length) {
-        pool.push({ roll: g.members[i], groupId: g.id, color: g.color, hex: g.hex });
-      }
+  for (const g of sortedGroups) {
+    const sorted = [...g.members].sort(naturalCompare);
+    for (const roll of sorted) {
+      pool.push({ roll, groupId: g.id, color: g.color, hex: g.hex });
     }
   }
 
@@ -173,31 +173,16 @@ export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Sea
   const overflow = pool.slice(capacity).map(p => p.roll);
   const toPlace = pool.slice(0, capacity);
 
-  // Distribute across columns proportionally
-  const columnPools = distributeToColumns(toPlace, layout);
-
-  // Fill each column: assign subCol to a group, fill top-to-bottom
+  // Fill: column by column, sub-column by sub-column, top to bottom
+  let poolIndex = 0;
   let seatIdx = 0;
   for (let c = 0; c < layout.columns.length; c++) {
     const col = layout.columns[c];
-    const colPool = columnPools[c];
-
-    // Split column pool back into per-group queues
-    const groupQueues = new Map<string, typeof colPool>();
-    for (const g of groups) groupQueues.set(g.id, []);
-    for (const s of colPool) {
-      groupQueues.get(s.groupId)?.push(s);
-    }
-
     for (let sc = 0; sc < col.subColumns; sc++) {
-      const assignedGroupIdx = sc % numGroups;
-      const assignedGroup = groups[assignedGroupIdx];
-      const queue = groupQueues.get(assignedGroup.id)!;
-
       for (let r = 0; r < col.rows; r++) {
         const idx = seatIdx + r * col.subColumns + sc;
-        if (queue.length > 0) {
-          const student = queue.shift()!;
+        if (poolIndex < toPlace.length) {
+          const student = toPlace[poolIndex++];
           seats[idx].rollNumber = student.roll;
           seats[idx].groupId = student.groupId;
           seats[idx].color = student.color;
@@ -205,25 +190,6 @@ export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Sea
         }
       }
     }
-
-    // Place any remaining students from other groups into empty seats
-    const remaining: typeof colPool = [];
-    for (const q of groupQueues.values()) remaining.push(...q);
-    if (remaining.length > 0) {
-      for (let r = 0; r < col.rows; r++) {
-        for (let sc = 0; sc < col.subColumns; sc++) {
-          const idx = seatIdx + r * col.subColumns + sc;
-          if (!seats[idx].rollNumber && remaining.length > 0) {
-            const student = remaining.shift()!;
-            seats[idx].rollNumber = student.roll;
-            seats[idx].groupId = student.groupId;
-            seats[idx].color = student.color;
-            seats[idx].hex = student.hex;
-          }
-        }
-      }
-    }
-
     seatIdx += col.subColumns * col.rows;
   }
 
