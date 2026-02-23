@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
-import { autoGroup, getTotalCapacity, parseRollNumbers, Group, RoomLayout } from "@/lib/shuffleEngine";
+import { useCallback, useMemo, useRef } from "react";
+import { autoGroup, getTotalCapacity, parseRollNumbers, detectSequenceGaps, Group, RoomLayout } from "@/lib/shuffleEngine";
 import { ChevronLeft, ChevronRight, AlertTriangle, Info, X } from "lucide-react";
 
 interface Props {
@@ -80,16 +80,32 @@ const Step2RollInput = ({ rollNumbers, setRollNumbers, groups, setGroups, layout
           <div className="glass-card p-5 space-y-4">
             <h3 className="text-sm font-semibold">Roll Number Analysis</h3>
 
-            {groups.map(group => (
-              <div key={group.id} className="flex items-center gap-3">
-                <span
-                  className="w-3 h-3 rounded-full flex-shrink-0"
-                  style={{ backgroundColor: group.hex }}
-                />
-                <span className="text-sm font-medium">{group.label}</span>
-                <span className="text-xs text-muted-foreground">— {group.members.length} students</span>
-              </div>
-            ))}
+            {groups.map(group => {
+              const gaps = detectSequenceGaps(group.members);
+              const hasGaps = gaps.missing.length > 0;
+              return (
+                <div key={group.id} className="space-y-1">
+                  <div className="flex items-center gap-3">
+                    <span
+                      className="w-3 h-3 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: group.hex }}
+                    />
+                    <span className="text-sm font-medium">{group.label}</span>
+                    <span className="text-xs text-muted-foreground">— {group.members.length} students</span>
+                  </div>
+                  <div className="ml-6 text-xs text-muted-foreground">
+                    <span>Sequence: {gaps.ranges}</span>
+                    {hasGaps ? (
+                      <span className="ml-2 inline-flex items-center gap-1" style={{ color: "#FF9500" }}>
+                        ⚠️ Missing: {gaps.missing.map(n => String(n).padStart(3, '0')).join(', ')}
+                      </span>
+                    ) : (
+                      <span className="ml-2" style={{ color: "#34C759" }}>✓ Complete sequence</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
 
             <div className="flex items-center gap-4 pt-2 border-t border-border text-sm">
               <span>Total students: <strong>{totalStudents}</strong></span>

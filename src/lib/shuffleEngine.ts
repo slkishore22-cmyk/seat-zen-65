@@ -152,45 +152,105 @@ function distributeToColumns(pool: { roll: string; groupId: string; color: strin
   return result;
 }
 
+// Extract numeric suffix from a roll number
+export function extractNumericSuffix(roll: string): number {
+  const match = roll.match(/(\d+)$/);
+  return match ? parseInt(match[1], 10) : 0;
+}
+
+// Detect sequence gaps within a group's sorted members
+export function detectSequenceGaps(members: string[]): { missing: number[]; ranges: string } {
+  if (members.length === 0) return { missing: [], ranges: "" };
+  const nums = members.map(extractNumericSuffix).sort((a, b) => a - b);
+  const missing: number[] = [];
+  for (let i = 1; i < nums.length; i++) {
+    for (let n = nums[i - 1] + 1; n < nums[i]; n++) {
+      missing.push(n);
+    }
+  }
+  // Build range string
+  const ranges: string[] = [];
+  let start = nums[0];
+  let end = nums[0];
+  for (let i = 1; i < nums.length; i++) {
+    if (nums[i] === end + 1) {
+      end = nums[i];
+    } else {
+      ranges.push(start === end ? String(start).padStart(3, '0') : `${String(start).padStart(3, '0')} → ${String(end).padStart(3, '0')}`);
+      start = nums[i];
+      end = nums[i];
+    }
+  }
+  ranges.push(start === end ? String(start).padStart(3, '0') : `${String(start).padStart(3, '0')} → ${String(end).padStart(3, '0')}`);
+  return { missing, ranges: ranges.join(', ') };
+}
+
+// Get the sub-column to group assignment for normal shuffle
+export function getSubColGroupAssignment(layout: RoomLayout, groups: Group[]): { columnIndex: number; subColIndex: number; group: Group | null }[] {
+  const assignments: { columnIndex: number; subColIndex: number; group: Group | null }[] = [];
+  if (groups.length === 0) return assignments;
+  let globalSubCol = 0;
+  for (let c = 0; c < layout.columns.length; c++) {
+    for (let sc = 0; sc < layout.columns[c].subColumns; sc++) {
+      const groupIdx = globalSubCol % groups.length;
+      assignments.push({ columnIndex: c, subColIndex: sc, group: groups[groupIdx] });
+      globalSubCol++;
+    }
+  }
+  return assignments;
+}
+
 // Step C — Normal Shuffle
-// Sequential fill: sort groups by size descending, concatenate into one flat pool,
-// then fill sub-column by sub-column, top to bottom, left to right.
+// Each sub-column is permanently assigned to a group (wrapping).
+// Students fill vertically (top to bottom) within their assigned sub-columns.
 export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Seat[]; overflow: string[] } {
   const seats = createEmptyGrid(layout);
   if (groups.length === 0) return { seats, overflow: [] };
 
-  // Sort groups by size descending, then build one flat sequential pool
-  const sortedGroups = [...groups].sort((a, b) => b.members.length - a.members.length);
-  const pool: { roll: string; groupId: string; color: string; hex: string }[] = [];
+  // Sort each group's members by numeric suffix ascending
+  const sortedGroups = groups.map(g => ({
+    ...g,
+    members: [...g.members].sort((a, b) => extractNumericSuffix(a) - extractNumericSuffix(b)),
+  }));
+
+  // Build per-group queues
+  const groupQueues = new Map<string, string[]>();
   for (const g of sortedGroups) {
-    const sorted = [...g.members].sort(naturalCompare);
-    for (const roll of sorted) {
-      pool.push({ roll, groupId: g.id, color: g.color, hex: g.hex });
-    }
+    groupQueues.set(g.id, [...g.members]);
   }
 
-  const capacity = seats.length;
-  const overflow = pool.slice(capacity).map(p => p.roll);
-  const toPlace = pool.slice(0, capacity);
-
-  // Fill: column by column, sub-column by sub-column, top to bottom
-  let poolIndex = 0;
+  // Assign sub-columns to groups and fill
+  const overflow: string[] = [];
   let seatIdx = 0;
+  let globalSubCol = 0;
+
   for (let c = 0; c < layout.columns.length; c++) {
     const col = layout.columns[c];
     for (let sc = 0; sc < col.subColumns; sc++) {
+      const groupIdx = globalSubCol % sortedGroups.length;
+      const group = sortedGroups[groupIdx];
+      const queue = groupQueues.get(group.id)!;
+
       for (let r = 0; r < col.rows; r++) {
         const idx = seatIdx + r * col.subColumns + sc;
-        if (poolIndex < toPlace.length) {
-          const student = toPlace[poolIndex++];
-          seats[idx].rollNumber = student.roll;
-          seats[idx].groupId = student.groupId;
-          seats[idx].color = student.color;
-          seats[idx].hex = student.hex;
+        if (queue.length > 0) {
+          const roll = queue.shift()!;
+          seats[idx].rollNumber = roll;
+          seats[idx].groupId = group.id;
+          seats[idx].color = group.color;
+          seats[idx].hex = group.hex;
         }
+        // else: seat stays empty
       }
+      globalSubCol++;
     }
     seatIdx += col.subColumns * col.rows;
+  }
+
+  // Collect overflow: remaining students in all queues
+  for (const g of sortedGroups) {
+    const remaining = groupQueues.get(g.id)!;
+    overflow.push(...remaining);
   }
 
   return { seats, overflow };
