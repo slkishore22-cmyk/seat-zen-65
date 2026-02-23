@@ -72,7 +72,7 @@ const Index = () => {
   }, [step]);
 
   return (
-    <main className="max-w-6xl mx-auto px-6 pt-24 pb-32">
+    <main className="max-w-6xl mx-auto px-6 pt-24 pb-40">
       {/* Step indicator */}
       <div className="flex items-center justify-center gap-2 mb-12">
         {[1, 2, 3, 4].map(s => (
