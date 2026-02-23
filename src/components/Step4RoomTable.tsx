@@ -252,7 +252,7 @@ const Step4RoomTable = ({
       </div>
 
       {overflow.length > 0 && (
-        <div className="glass-card p-5 mt-8 max-w-3xl mx-auto">
+        <div className="glass-card p-5 mt-8 mb-20 max-w-3xl mx-auto">
           <h3 className="text-sm font-semibold mb-2 flex items-center gap-1.5">
             <AlertTriangle size={14} className="text-destructive" /> Overflow Students ({overflow.length})
           </h3>
