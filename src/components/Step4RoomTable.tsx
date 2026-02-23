@@ -1,10 +1,10 @@
 import { useMemo, useState, useCallback } from "react";
-import { Group, RoomLayout, Seat, getConflictIndices, normalShuffle, universityShuffle } from "@/lib/shuffleEngine";
+import { Group, RoomLayout, Seat, getConflictIndices, normalShuffle, universityShuffle, getSubColGroupAssignment, detectSequenceGaps, extractNumericSuffix } from "@/lib/shuffleEngine";
 import { ShuffleType } from "@/pages/Index";
 import SeatCard from "@/components/SeatCard";
 import ColorLegend from "@/components/ColorLegend";
 import ActionBar from "@/components/ActionBar";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, X } from "lucide-react";
 
 interface Props {
   layout: RoomLayout;
@@ -26,10 +26,49 @@ const Step4RoomTable = ({
   setConflictCount, setOverflow, shuffleType, onNewRoom, onSave, readOnly,
 }: Props) => {
   const [animKey, setAnimKey] = useState(0);
+  const [showGapWarning, setShowGapWarning] = useState(true);
   const conflictSet = useMemo(() => getConflictIndices(seatMap, layout), [seatMap, layout]);
 
+  // Compute sequence gaps for normal shuffle
+  const groupGaps = useMemo(() => {
+    if (shuffleType !== "normal") return [];
+    return groups.map(g => ({
+      group: g,
+      gaps: detectSequenceGaps(g.members),
+    })).filter(item => item.gaps.missing.length > 0);
+  }, [groups, shuffleType]);
+
+  // Compute per-group sequence counters for normal shuffle badges
+  const seatSequenceNumbers = useMemo(() => {
+    if (shuffleType !== "normal") return new Map<number, number>();
+    const counters = new Map<string, number>(); // groupId -> counter
+    const result = new Map<number, number>();
+    for (let i = 0; i < seatMap.length; i++) {
+      const seat = seatMap[i];
+      if (seat.rollNumber && seat.groupId) {
+        const count = (counters.get(seat.groupId) || 0) + 1;
+        counters.set(seat.groupId, count);
+        result.set(i, count);
+      }
+    }
+    return result;
+  }, [seatMap, shuffleType]);
+
+  // Sub-column group assignments for normal shuffle
+  const subColAssignments = useMemo(() => {
+    if (shuffleType !== "normal") return [];
+    return getSubColGroupAssignment(layout, groups);
+  }, [layout, groups, shuffleType]);
+
+  // Auto-dismiss gap warning
+  useState(() => {
+    if (groupGaps.length > 0) {
+      const timer = setTimeout(() => setShowGapWarning(false), 8000);
+      return () => clearTimeout(timer);
+    }
+  });
+
   const handleReshuffle = useCallback(() => {
-    // Shuffle groups to get different seed
     const shuffledGroups = groups.map(g => ({
       ...g,
       members: [...g.members].sort(() => Math.random() - 0.5),
@@ -48,10 +87,10 @@ const Step4RoomTable = ({
       setConflictCount(r.conflictCount);
     }
     setAnimKey(k => k + 1);
+    setShowGapWarning(true);
   }, [groups, layout, shuffleType, setSeatMap, setOverflow, setConflictCount]);
 
   const handleAutoFix = useCallback(() => {
-    // Re-run university shuffle to try to fix
     const r = universityShuffle(groups, layout);
     setSeatMap(r.seats);
     setOverflow(r.overflow);
@@ -63,10 +102,7 @@ const Step4RoomTable = ({
     const printWindow = window.open("", "_blank");
     if (!printWindow) return;
 
-    let tableHtml = "";
     let seatIdx = 0;
-
-    // Build column HTML
     const colHtmls = layout.columns.map((col, ci) => {
       let rows = "";
       for (let r = 0; r < col.rows; r++) {
@@ -83,8 +119,7 @@ const Step4RoomTable = ({
       return `<div style="flex:1"><h4 style="text-align:center;font-size:12px;color:#888;margin-bottom:8px">Column ${ci + 1}</h4><table style="border-collapse:collapse;width:100%">${rows}</table></div>`;
     });
 
-    tableHtml = colHtmls.join('<div style="width:24px"></div>');
-
+    const tableHtml = colHtmls.join('<div style="width:24px"></div>');
     const legend = groups.map(g => `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:16px"><span style="width:10px;height:10px;border-radius:50%;background:${g.hex}"></span>${g.label} (${g.members.length})</span>`).join("");
 
     printWindow.document.write(`<!DOCTYPE html><html><head><title>Room Arrangement</title><style>body{font-family:-apple-system,sans-serif;padding:40px;color:#1d1d1f}@media print{button{display:none!important}}</style></head><body>
@@ -110,6 +145,29 @@ const Step4RoomTable = ({
         </p>
       </div>
 
+      {/* Sequence gap warning for normal shuffle */}
+      {shuffleType === "normal" && groupGaps.length > 0 && showGapWarning && (
+        <div className="glass-card p-5 mb-6 max-w-3xl mx-auto relative" style={{ backgroundColor: "#FF950015", borderColor: "#FF950040" }}>
+          <button
+            onClick={() => setShowGapWarning(false)}
+            className="absolute top-3 right-3 p-1 rounded-full hover:bg-black/10 transition-colors"
+          >
+            <X size={14} strokeWidth={2} />
+          </button>
+          <h3 className="text-sm font-semibold mb-2 flex items-center gap-1.5" style={{ color: "#FF9500" }}>
+            ⚠️ Sequence Gaps Detected
+          </h3>
+          {groupGaps.map(({ group, gaps }) => (
+            <div key={group.id} className="flex items-center gap-2 text-xs mb-1">
+              <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: group.hex }} />
+              <span className="font-medium">{group.label}:</span>
+              <span className="text-muted-foreground">Missing roll numbers {gaps.missing.map(n => String(n).padStart(3, '0')).join(', ')}</span>
+            </div>
+          ))}
+          <p className="text-xs text-muted-foreground mt-2">These gaps are handled automatically. The existing students are arranged in order.</p>
+        </div>
+      )}
+
       {conflictCount > 0 && (
         <div className="flex items-center justify-center gap-3 mb-6">
           <span className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-pill" style={{ backgroundColor: "#FF3B3015", color: "#FF3B30" }}>
@@ -128,6 +186,10 @@ const Step4RoomTable = ({
         <div className="flex gap-6 min-w-max justify-center" key={animKey}>
           {layout.columns.map((col, ci) => {
             const startIdx = globalIdx;
+
+            // Get sub-col assignments for this column
+            const colAssignments = subColAssignments.filter(a => a.columnIndex === ci);
+
             const colSeats: Seat[][] = [];
             for (let r = 0; r < col.rows; r++) {
               const row: Seat[] = [];
@@ -140,9 +202,30 @@ const Step4RoomTable = ({
 
             return (
               <div key={ci}>
-                <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest text-center mb-3">
+                <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest text-center mb-1">
                   Column {ci + 1}
                 </h4>
+                {/* Sub-column department labels for normal shuffle */}
+                {shuffleType === "normal" && colAssignments.length > 0 && (
+                  <div className="flex items-center gap-1 mb-2 justify-center">
+                    {colAssignments.map((a, i) => (
+                      <div
+                        key={i}
+                        className="flex items-center gap-0.5 px-1"
+                        style={{ width: 72, justifyContent: "center" }}
+                      >
+                        {a.group && (
+                          <>
+                            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: a.group.hex }} />
+                            <span className="text-[8px] font-semibold uppercase tracking-wide truncate" style={{ color: a.group.hex }}>
+                              {a.group.label}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <div className="flex flex-col gap-1.5">
                   {colSeats.map((row, ri) => (
                     <div key={ri} className="flex items-center gap-1">
@@ -155,6 +238,7 @@ const Step4RoomTable = ({
                             seat={seat}
                             isConflict={conflictSet.has(idx)}
                             delay={idx * 8}
+                            sequenceNumber={shuffleType === "normal" ? seatSequenceNumbers.get(idx) ?? null : null}
                           />
                         );
                       })}

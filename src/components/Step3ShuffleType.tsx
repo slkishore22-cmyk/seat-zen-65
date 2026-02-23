@@ -15,8 +15,10 @@ const MiniPreview = ({ type, groups }: { type: ShuffleType; groups: Group[] }) =
   const colors = groups.slice(0, 3).map(g => g.hex);
   while (colors.length < 3) colors.push("#ccc");
 
+  // Normal: same color vertically (dept behind each other), different horizontally
+  // University: rotating pattern, no same-group adjacency
   const rows = type === "normal"
-    ? [[0, 1, 2], [0, 1, 2], [0, 1, 2]]
+    ? [[0, 1, 2], [0, 1, 2], [0, 1, 2], [0, 1, 2], [0, 1, 2]]
     : [[0, 1, 2], [1, 2, 0], [2, 0, 1]];
 
   return (
@@ -51,7 +53,7 @@ const Step3ShuffleType = ({ groups, shuffleType, setShuffleType, layout, onGener
     {
       type: "normal",
       label: "Normal Shuffle",
-      desc: "Students arranged group by group in sequential column pattern. Easy to verify.",
+      desc: "Students from the same department sit one behind the other in the same column. Different departments sit side by side. Roll numbers are arranged in clean sequence within each department.",
       icon: <Shuffle size={20} strokeWidth={1.5} />,
     },
     {
