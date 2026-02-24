@@ -27,6 +27,7 @@ const Step4RoomTable = ({
 }: Props) => {
   const [animKey, setAnimKey] = useState(0);
   const [showGapWarning, setShowGapWarning] = useState(true);
+  const [actionBarHeight, setActionBarHeight] = useState(96);
   const conflictSet = useMemo(() => getConflictIndices(seatMap, layout), [seatMap, layout]);
 
   // Compute sequence gaps for normal shuffle
@@ -252,7 +253,7 @@ const Step4RoomTable = ({
       </div>
 
       {overflow.length > 0 && (
-        <div className="glass-card p-5 mt-8 mb-20 max-w-3xl mx-auto">
+        <div className="glass-card p-5 mt-8 max-w-3xl mx-auto">
           <h3 className="text-sm font-semibold mb-2 flex items-center gap-1.5">
             <AlertTriangle size={14} className="text-destructive" /> Overflow Students ({overflow.length})
           </h3>
@@ -266,12 +267,16 @@ const Step4RoomTable = ({
       )}
 
       {!readOnly && (
-        <ActionBar
-          onReshuffle={handleReshuffle}
-          onSave={onSave}
-          onNewRoom={onNewRoom}
-          onPrint={handlePrint}
-        />
+        <>
+          <div aria-hidden="true" style={{ height: actionBarHeight + 20 }} />
+          <ActionBar
+            onReshuffle={handleReshuffle}
+            onSave={onSave}
+            onNewRoom={onNewRoom}
+            onPrint={handlePrint}
+            onHeightChange={setActionBarHeight}
+          />
+        </>
       )}
     </div>
   );
