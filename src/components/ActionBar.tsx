@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Shuffle, Save, Plus, Printer } from "lucide-react";
 import { toast } from "sonner";
 
@@ -7,11 +7,30 @@ interface Props {
   onSave: (name: string) => void;
   onNewRoom: () => void;
   onPrint: () => void;
+  onHeightChange?: (height: number) => void;
 }
 
-const ActionBar = ({ onReshuffle, onSave, onNewRoom, onPrint }: Props) => {
+const ActionBar = ({ onReshuffle, onSave, onNewRoom, onPrint, onHeightChange }: Props) => {
   const [showSave, setShowSave] = useState(false);
   const [roomName, setRoomName] = useState("");
+  const barRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!onHeightChange || !barRef.current) return;
+
+    const element = barRef.current;
+    const emitHeight = () => onHeightChange(Math.ceil(element.getBoundingClientRect().height));
+    emitHeight();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", emitHeight);
+      return () => window.removeEventListener("resize", emitHeight);
+    }
+
+    const observer = new ResizeObserver(emitHeight);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [onHeightChange]);
 
   const handleSave = () => {
     if (!roomName.trim()) return;
@@ -22,8 +41,8 @@ const ActionBar = ({ onReshuffle, onSave, onNewRoom, onPrint }: Props) => {
   };
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40 glass-card" style={{ borderRadius: 0, borderBottom: "none", borderLeft: "none", borderRight: "none" }}>
-      <div className="max-w-6xl mx-auto px-6 py-3 flex items-center gap-3 flex-nowrap overflow-x-auto justify-start md:justify-center">
+    <div ref={barRef} className="fixed bottom-0 left-0 right-0 z-40 glass-card" style={{ borderRadius: 0, borderBottom: "none", borderLeft: "none", borderRight: "none" }}>
+      <div className="max-w-6xl mx-auto px-6 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] flex items-center gap-3 flex-nowrap overflow-x-auto justify-start md:justify-center">
         <button className="btn-secondary text-sm shrink-0" onClick={onReshuffle}>
           <Shuffle size={14} strokeWidth={1.5} className="mr-1.5" /> Re-shuffle
         </button>
