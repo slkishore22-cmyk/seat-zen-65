@@ -1,61 +1,37 @@
 import { useCallback, useEffect, useState } from "react";
-import { ColumnConfig, Group, RoomLayout, Seat } from "@/lib/shuffleEngine";
-import Step1RoomSetup from "@/components/Step1RoomSetup";
-import Step2RollInput from "@/components/Step2RollInput";
-import Step3ShuffleType from "@/components/Step3ShuffleType";
-import Step4RoomTable from "@/components/Step4RoomTable";
-import { useSavedRooms } from "@/hooks/useSavedRooms";
-import { ArrowLeft } from "lucide-react";
+import { useExamSession } from "@/hooks/useExamSession";
+import Step1RoomCount from "@/components/Step1RoomCount";
+import Step2RoomConfig from "@/components/Step2RoomConfig";
+import Step3StudentInput from "@/components/Step3StudentInput";
+import Step4ShuffleType from "@/components/Step4ShuffleType";
+import Step5AllRooms from "@/components/Step5AllRooms";
+import { ArrowLeft, Check } from "lucide-react";
 
 export type ShuffleType = "normal" | "university";
 
+// Keep for backward compat
 export interface RoomData {
   id: string;
   name: string;
   createdAt: string;
   shuffleType: ShuffleType;
-  layout: RoomLayout;
-  groups: Group[];
-  seatMap: Seat[];
+  layout: { columns: { subColumns: number; rows: number }[] };
+  groups: { id: string; label: string; color: string; hex: string; members: string[] }[];
+  seatMap: { columnIndex: number; rowIndex: number; subColumnIndex: number; rollNumber: string | null; groupId: string | null; color: string | null; hex: string | null }[];
 }
+
+const STEP_LABELS = ["Rooms", "Configure", "Students", "Arrange", "Result"];
 
 const Index = () => {
   const [step, setStep] = useState(1);
-  const [columns, setColumns] = useState<ColumnConfig[]>([]);
-  const [rollNumbers, setRollNumbers] = useState<string[]>([]);
-  const [groups, setGroups] = useState<Group[]>([]);
-  const [shuffleType, setShuffleType] = useState<ShuffleType>("normal");
-  const [seatMap, setSeatMap] = useState<Seat[]>([]);
-  const [overflow, setOverflow] = useState<string[]>([]);
-  const [conflictCount, setConflictCount] = useState(0);
-  const { addRoom } = useSavedRooms();
+  const { resetSession } = useExamSession();
 
-  const layout: RoomLayout = { columns };
-
-  const handleNewRoom = useCallback(() => {
+  const handleNewExam = useCallback(() => {
     setStep(1);
-    setColumns([]);
-    setRollNumbers([]);
-    setGroups([]);
-    setSeatMap([]);
-    setOverflow([]);
-    setConflictCount(0);
-  }, []);
+    resetSession();
+  }, [resetSession]);
 
-  const handleSaveRoom = useCallback((name: string) => {
-    const room: RoomData = {
-      id: crypto.randomUUID(),
-      name,
-      createdAt: new Date().toISOString(),
-      shuffleType,
-      layout,
-      groups,
-      seatMap,
-    };
-    addRoom(room);
-  }, [shuffleType, layout, groups, seatMap, addRoom]);
-
-  // Browser back button support for wizard steps
+  // Browser back button support
   useEffect(() => {
     const handlePopState = () => {
       setStep(prev => (prev > 1 ? prev - 1 : 1));
@@ -74,23 +50,32 @@ const Index = () => {
   return (
     <main className="max-w-6xl mx-auto px-6 pt-24 pb-48">
       {/* Step indicator */}
-      <div className="flex items-center justify-center gap-2 mb-12">
-        {[1, 2, 3, 4].map(s => (
-          <div
-            key={s}
-            className="transition-all duration-300"
-            style={{
-              width: s === step ? 32 : 8,
-              height: 8,
-              borderRadius: 4,
-              backgroundColor: s <= step ? "hsl(var(--foreground))" : "hsl(var(--border))",
-            }}
-          />
-        ))}
+      <div className="flex items-center justify-center gap-3 mb-12">
+        {STEP_LABELS.map((label, i) => {
+          const s = i + 1;
+          const isActive = s === step;
+          const isCompleted = s < step;
+          return (
+            <div key={s} className="flex flex-col items-center gap-1.5">
+              <div
+                className="flex items-center justify-center rounded-full transition-all duration-300"
+                style={{
+                  width: 10,
+                  height: 10,
+                  backgroundColor: isActive || isCompleted ? "hsl(var(--foreground))" : "transparent",
+                  border: isActive || isCompleted ? "none" : "1.5px solid hsl(var(--muted-foreground))",
+                }}
+              >
+                {isCompleted && <Check size={7} strokeWidth={3} className="text-primary-foreground" />}
+              </div>
+              <span className="text-[9px] text-muted-foreground font-medium uppercase tracking-wide">{label}</span>
+            </div>
+          );
+        })}
       </div>
 
       {/* Back button for steps 2-4 */}
-      {step > 1 && (
+      {step > 1 && step < 5 && (
         <button
           onClick={() => setStep(prev => prev - 1)}
           className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6"
@@ -101,55 +86,11 @@ const Index = () => {
       )}
 
       <div className="step-enter" key={step}>
-        {step === 1 && (
-          <Step1RoomSetup
-            columns={columns}
-            setColumns={setColumns}
-            onNext={() => goToStep(2)}
-          />
-        )}
-        {step === 2 && (
-          <Step2RollInput
-            rollNumbers={rollNumbers}
-            setRollNumbers={setRollNumbers}
-            groups={groups}
-            setGroups={setGroups}
-            layout={layout}
-            onNext={() => goToStep(3)}
-            onBack={() => setStep(1)}
-          />
-        )}
-        {step === 3 && (
-          <Step3ShuffleType
-            groups={groups}
-            shuffleType={shuffleType}
-            setShuffleType={setShuffleType}
-            layout={layout}
-            onGenerate={(seats, of, cc) => {
-              setSeatMap(seats);
-              setOverflow(of);
-              setConflictCount(cc);
-              goToStep(4);
-            }}
-            onBack={() => setStep(2)}
-          />
-        )}
-        {step === 4 && (
-          <Step4RoomTable
-            layout={layout}
-            groups={groups}
-            seatMap={seatMap}
-            setSeatMap={setSeatMap}
-            overflow={overflow}
-            conflictCount={conflictCount}
-            setConflictCount={setConflictCount}
-            setOverflow={setOverflow}
-            shuffleType={shuffleType}
-            onNewRoom={handleNewRoom}
-            onSave={handleSaveRoom}
-            readOnly={false}
-          />
-        )}
+        {step === 1 && <Step1RoomCount onNext={() => goToStep(2)} />}
+        {step === 2 && <Step2RoomConfig onNext={() => goToStep(3)} onBack={() => setStep(1)} />}
+        {step === 3 && <Step3StudentInput onNext={() => goToStep(4)} onBack={() => setStep(2)} />}
+        {step === 4 && <Step4ShuffleType onGenerate={() => goToStep(5)} onBack={() => setStep(3)} />}
+        {step === 5 && <Step5AllRooms onNewExam={handleNewExam} />}
       </div>
     </main>
   );
