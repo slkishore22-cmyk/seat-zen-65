@@ -4,20 +4,20 @@ import TopNav from "@/components/TopNav";
 import Index from "./pages/Index";
 import SavedRoomsPage from "./pages/SavedRoomsPage";
 import NotFound from "./pages/NotFound";
-import { SavedRoomsProvider } from "@/hooks/useSavedRooms";
+import { ExamSessionProvider } from "@/hooks/useExamSession";
 
 const App = () => (
   <>
     <Sonner />
     <BrowserRouter>
-      <SavedRoomsProvider>
+      <ExamSessionProvider>
         <TopNav />
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/saved" element={<SavedRoomsPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
-      </SavedRoomsProvider>
+      </ExamSessionProvider>
     </BrowserRouter>
   </>
 );

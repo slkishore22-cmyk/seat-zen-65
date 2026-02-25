@@ -24,7 +24,7 @@ const TopNav = () => {
             }`}
           >
             <LayoutGrid size={14} strokeWidth={1.5} />
-            New Room
+            New Exam
           </button>
           <button
             onClick={() => navigate("/saved")}
@@ -35,7 +35,7 @@ const TopNav = () => {
             }`}
           >
             <Archive size={14} strokeWidth={1.5} />
-            Saved Rooms
+            Saved
           </button>
         </div>
       </div>

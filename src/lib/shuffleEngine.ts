@@ -481,3 +481,114 @@ export function getConflictIndices(seats: Seat[], layout?: RoomLayout): Set<numb
   }
   return conflicts;
 }
+
+// ==========================================
+// MULTI-ROOM DISTRIBUTION
+// ==========================================
+
+export interface RoomConfig {
+  index: number;
+  name: string;
+  columns: ColumnConfig[];
+}
+
+export interface RoomResult {
+  roomIndex: number;
+  roomName: string;
+  groups: Group[];
+  seats: Seat[];
+  overflow: string[];
+  conflictCount: number;
+  studentCount: number;
+}
+
+export function distributeStudentsAcrossRooms(
+  groups: Group[],
+  rooms: RoomConfig[],
+  shuffleType: "normal" | "university"
+): RoomResult[] {
+  if (rooms.length === 0 || groups.length === 0) return [];
+
+  // Sort each group's members
+  const sortedGroups = groups.map(g => ({
+    ...g,
+    members: [...g.members].sort((a, b) => extractNumericSuffix(a) - extractNumericSuffix(b)),
+  }));
+
+  // Calculate capacities
+  const roomCapacities = rooms.map(r =>
+    r.columns.reduce((sum, col) => sum + col.subColumns * col.rows, 0)
+  );
+  const totalCapacity = roomCapacities.reduce((a, b) => a + b, 0);
+
+  // For each group, split members proportionally across rooms
+  const roomGroupSlices: Map<number, Map<string, string[]>> = new Map();
+  for (let ri = 0; ri < rooms.length; ri++) {
+    roomGroupSlices.set(ri, new Map());
+  }
+
+  for (const group of sortedGroups) {
+    const members = group.members;
+    let offset = 0;
+
+    for (let ri = 0; ri < rooms.length; ri++) {
+      let count: number;
+      if (ri === rooms.length - 1) {
+        // Last room gets remainder
+        count = members.length - offset;
+      } else {
+        count = totalCapacity > 0
+          ? Math.floor(members.length * (roomCapacities[ri] / totalCapacity))
+          : 0;
+      }
+      count = Math.max(0, Math.min(count, members.length - offset));
+      roomGroupSlices.get(ri)!.set(group.id, members.slice(offset, offset + count));
+      offset += count;
+    }
+  }
+
+  // Build per-room Group[] and run shuffle
+  const results: RoomResult[] = [];
+
+  for (let ri = 0; ri < rooms.length; ri++) {
+    const room = rooms[ri];
+    const layout: RoomLayout = { columns: room.columns };
+    const slices = roomGroupSlices.get(ri)!;
+
+    // Build groups for this room (exclude empty groups)
+    const roomGroups: Group[] = [];
+    for (const group of sortedGroups) {
+      const slice = slices.get(group.id) || [];
+      if (slice.length > 0) {
+        roomGroups.push({ ...group, members: slice });
+      }
+    }
+
+    let seats: Seat[];
+    let overflow: string[];
+    let conflictCount = 0;
+
+    if (shuffleType === "normal") {
+      const r = normalShuffle(roomGroups, layout);
+      seats = r.seats;
+      overflow = r.overflow;
+    } else {
+      const r = universityShuffle(roomGroups, layout);
+      seats = r.seats;
+      overflow = r.overflow;
+      conflictCount = r.conflictCount;
+    }
+
+    results.push({
+      roomIndex: ri,
+      roomName: room.name || `Room ${ri + 1}`,
+      groups: roomGroups,
+      seats,
+      overflow,
+      conflictCount,
+      studentCount: seats.filter(s => s.rollNumber).length,
+    });
+  }
+
+  return results;
+}
