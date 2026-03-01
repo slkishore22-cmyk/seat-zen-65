@@ -247,64 +247,65 @@ function getNeighborGroupIds(seats: Seat[], layout: RoomLayout, idx: number): Se
 }
 
 // Step C — Normal Shuffle
-// Each sub-column is permanently assigned to a group (wrapping).
-// Students fill vertically (top to bottom) within their assigned sub-columns.
-// After main fill, overflow students fill remaining empty seats respecting no-horizontal-same-dept.
+// Each sub-column is PERMANENTLY assigned to one department (wrapping).
+// Students fill vertically top-to-bottom via queue.shift() — pure sequential drain.
+// Missing roll numbers are never in the queue, so no seat is ever left empty for them.
+// Overflow pass fills remaining empty seats respecting no-horizontal-same-dept constraint.
 export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Seat[]; overflow: string[] } {
   const seats = createEmptyGrid(layout);
   if (groups.length === 0) return { seats, overflow: [] };
 
-  // Sort each group's members by numeric suffix ascending
+  const numGroups = groups.length;
+
+  // STEP 1: Build sorted queues — only real students, no placeholders
   const sortedGroups = groups.map(g => ({
     ...g,
     members: [...g.members].sort((a, b) => extractNumericSuffix(a) - extractNumericSuffix(b)),
   }));
 
-  // Build per-group queues
-  const groupQueues = new Map<string, string[]>();
-  for (const g of sortedGroups) {
-    groupQueues.set(g.id, [...g.members]);
-  }
+  // Each group gets its own queue of real students only
+  const groupQueues: string[][] = sortedGroups.map(g => [...g.members]);
 
-  // Phase 1: Assign sub-columns to groups and fill sequentially (queue.shift only)
+  // STEP 2 + 3: Fill each sub-column top-to-bottom with its permanently assigned group
+  // Assignment: globalSubCol % numGroups — NEVER changes, NEVER mixes departments
   let seatIdx = 0;
   let globalSubCol = 0;
 
   for (let c = 0; c < layout.columns.length; c++) {
     const col = layout.columns[c];
     for (let sc = 0; sc < col.subColumns; sc++) {
-      const groupIdx = globalSubCol % sortedGroups.length;
+      const groupIdx = globalSubCol % numGroups; // permanent assignment
       const group = sortedGroups[groupIdx];
-      const queue = groupQueues.get(group.id)!;
+      const queue = groupQueues[groupIdx];
 
+      // Fill this sub-column top to bottom — pure sequential drain
       for (let r = 0; r < col.rows; r++) {
         const idx = seatIdx + r * col.subColumns + sc;
         if (queue.length > 0) {
-          const roll = queue.shift()!;
+          const roll = queue.shift()!; // next real student, never skip
           seats[idx].rollNumber = roll;
           seats[idx].groupId = group.id;
           seats[idx].color = group.color;
           seats[idx].hex = group.hex;
         }
-        // seat stays empty only if this group's queue is exhausted
+        // else: seat stays empty — this group is truly exhausted
       }
       globalSubCol++;
     }
     seatIdx += col.subColumns * col.rows;
   }
 
-  // Phase 2: Overflow fill — collect remaining students and empty seats
+  // STEP 4: Overflow pass — fill remaining empty seats with leftover students
   const remaining: { roll: string; group: typeof sortedGroups[0] }[] = [];
-  for (const g of sortedGroups) {
-    const queue = groupQueues.get(g.id)!;
+  for (let gi = 0; gi < numGroups; gi++) {
+    const queue = groupQueues[gi];
     for (const roll of queue) {
-      remaining.push({ roll, group: g });
+      remaining.push({ roll, group: sortedGroups[gi] });
     }
     queue.length = 0;
   }
 
   if (remaining.length > 0) {
-    // Collect empty seat indices
     const emptyIndices: number[] = [];
     for (let i = 0; i < seats.length; i++) {
       if (!seats[i].rollNumber) emptyIndices.push(i);
@@ -313,18 +314,44 @@ export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Sea
     for (const emptyIdx of emptyIndices) {
       if (remaining.length === 0) break;
 
-      const neighborGroups = getNeighborGroupIds(seats, layout, emptyIdx);
+      // Get ONLY horizontal neighbors (left and right in same row)
+      const neighborGroupIds = new Set<string>();
+      let colStart = 0;
+      let col: ColumnConfig | null = null;
+      for (let ci = 0; ci < layout.columns.length; ci++) {
+        const size = layout.columns[ci].subColumns * layout.columns[ci].rows;
+        if (emptyIdx < colStart + size) {
+          col = layout.columns[ci];
+          break;
+        }
+        colStart += size;
+      }
+      if (col) {
+        const localIdx = emptyIdx - colStart;
+        const row = Math.floor(localIdx / col.subColumns);
+        const sc = localIdx % col.subColumns;
+        // Left neighbor
+        if (sc > 0) {
+          const leftIdx = colStart + row * col.subColumns + (sc - 1);
+          if (seats[leftIdx].groupId) neighborGroupIds.add(seats[leftIdx].groupId!);
+        }
+        // Right neighbor
+        if (sc < col.subColumns - 1) {
+          const rightIdx = colStart + row * col.subColumns + (sc + 1);
+          if (seats[rightIdx].groupId) neighborGroupIds.add(seats[rightIdx].groupId!);
+        }
+      }
 
-      // Try to find a student whose group doesn't conflict horizontally
+      // Find first student that doesn't conflict horizontally
       let bestIdx = -1;
       for (let i = 0; i < remaining.length; i++) {
-        if (!neighborGroups.has(remaining[i].group.id)) {
+        if (!neighborGroupIds.has(remaining[i].group.id)) {
           bestIdx = i;
           break;
         }
       }
 
-      // If no conflict-free student, use the first one anyway (don't waste seats)
+      // No conflict-free student available — place next anyway (no empty seats)
       if (bestIdx === -1) bestIdx = 0;
 
       const student = remaining.splice(bestIdx, 1)[0];
@@ -335,9 +362,7 @@ export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Sea
     }
   }
 
-  // Collect true overflow: students that couldn't fit at all
   const overflow = remaining.map(r => r.roll);
-
   return { seats, overflow };
 }
 
