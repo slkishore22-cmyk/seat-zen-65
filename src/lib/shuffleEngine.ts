@@ -43,8 +43,53 @@ export interface Seat {
 
 // Step A — Roll Number Parser
 export function parseRollNumbers(raw: string): string[] {
-  const tokens = raw.split(/[,\s\n\t]+/).map(t => t.trim()).filter(Boolean);
-  return [...new Set(tokens)];
+  if (!raw || raw.trim() === '') return [];
+
+  // Step 1: Split by standard delimiters
+  const tokens = raw
+    .split(/[\s,;\n\r\t]+/)
+    .map(t => t.trim())
+    .filter(t => t.length > 0);
+
+  // Step 2: Smart unjam pass
+  // Detect pure-number tokens that are multiple roll numbers jammed together
+  const unjammed: string[] = [];
+  for (const token of tokens) {
+    const isPureNumber = /^\d+$/.test(token);
+    if (isPureNumber && token.length > 7) {
+      let chunkSize = 7;
+      if (token.length % 7 === 0) {
+        chunkSize = 7;
+      } else if (token.length % 6 === 0) {
+        chunkSize = 6;
+      } else if (token.length % 5 === 0) {
+        chunkSize = 5;
+      } else {
+        chunkSize = 7;
+      }
+      for (let i = 0; i < token.length; i += chunkSize) {
+        const chunk = token.substring(i, i + chunkSize);
+        if (chunk.length > 0) {
+          unjammed.push(chunk);
+        }
+      }
+    } else {
+      unjammed.push(token);
+    }
+  }
+
+  // Step 3: Deduplicate while preserving first-seen order
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const token of unjammed) {
+    const upper = token.toUpperCase();
+    if (!seen.has(upper)) {
+      seen.add(upper);
+      unique.push(upper);
+    }
+  }
+
+  return unique;
 }
 
 // Natural sort comparator — handles alphanumeric correctly (e.g. 25CS9 < 25CS10)
