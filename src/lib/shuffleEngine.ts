@@ -109,22 +109,24 @@ function extractPrefix(rollNumber: string): string {
   const lettersFirst = upper.match(/^([A-Z]+)/);
   if (lettersFirst) return lettersFirst[1];
 
-  // PATTERN 3: Pure numeric roll numbers (e.g. 23456, 24001)
+  // PATTERN 3: Pure numeric roll numbers
+  // Last 3 digits = student sequence number
+  // Everything before last 3 = department/batch prefix
+  // e.g. 2401001 → "2401", 2402001 → "2402", 2024147 → "2024", 23456 → "23"
   const pureNumber = upper.match(/^(\d+)$/);
   if (pureNumber) {
     const numStr = pureNumber[1];
     const num = parseInt(numStr, 10);
 
     if (numStr.length >= 4) {
-      return numStr.substring(0, 2); // first 2 digits = year batch
+      return numStr.substring(0, numStr.length - 3);
     }
     if (numStr.length === 3) {
-      return numStr.substring(0, 1); // first 1 digit = group
+      return numStr.substring(0, 1);
     }
     if (num >= 100) {
-      return numStr.substring(0, 2);
+      return numStr.substring(0, 1);
     }
-    // 1-2 digit numbers: group by tens
     const tensGroup = Math.floor(num / 10) * 10;
     return tensGroup === 0 ? '1' : String(tensGroup);
   }
