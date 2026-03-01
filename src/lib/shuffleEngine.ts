@@ -53,27 +53,45 @@ function naturalCompare(a: string, b: string): number {
 }
 
 // Step B — Auto Grouper
+function extractPrefix(rollNumber: string): string {
+  const upper = rollNumber.toUpperCase().trim();
+
+  // PATTERN 1: Alphanumeric with year+letters+number (e.g. 25CS001, 24A001)
+  const alphaNumPrefix = upper.match(/^([A-Z]*\d+[A-Z]+)/);
+  if (alphaNumPrefix) return alphaNumPrefix[1];
+
+  // PATTERN 2: Letters only prefix before digits (e.g. CS001, ME010)
+  const lettersFirst = upper.match(/^([A-Z]+)/);
+  if (lettersFirst) return lettersFirst[1];
+
+  // PATTERN 3: Pure numeric roll numbers (e.g. 23456, 24001)
+  const pureNumber = upper.match(/^(\d+)$/);
+  if (pureNumber) {
+    const numStr = pureNumber[1];
+    const num = parseInt(numStr, 10);
+
+    if (numStr.length >= 4) {
+      return numStr.substring(0, 2); // first 2 digits = year batch
+    }
+    if (numStr.length === 3) {
+      return numStr.substring(0, 1); // first 1 digit = group
+    }
+    if (num >= 100) {
+      return numStr.substring(0, 2);
+    }
+    // 1-2 digit numbers: group by tens
+    const tensGroup = Math.floor(num / 10) * 10;
+    return tensGroup === 0 ? '1' : String(tensGroup);
+  }
+
+  return upper.substring(0, 3);
+}
+
 export function autoGroup(rollNumbers: string[]): Group[] {
   const groups = new Map<string, string[]>();
 
   for (const rn of rollNumbers) {
-    let prefix: string;
-
-    // Check if purely numeric
-    if (/^\d+$/.test(rn)) {
-      const num = parseInt(rn);
-      const tens = Math.floor(num / 10) * 10;
-      prefix = tens === 0 ? "0s" : `${tens}s`;
-    } else {
-      // Alphanumeric: extract prefix before sequential digits at end
-      const match = rn.match(/^(.+?)(\d+)$/);
-      if (match) {
-        prefix = match[1];
-      } else {
-        prefix = "misc";
-      }
-    }
-
+    const prefix = extractPrefix(rn);
     if (!groups.has(prefix)) {
       groups.set(prefix, []);
     }
@@ -154,8 +172,23 @@ function distributeToColumns(pool: { roll: string; groupId: string; color: strin
 
 // Extract numeric suffix from a roll number
 export function extractNumericSuffix(roll: string): number {
-  const match = roll.match(/(\d+)$/);
-  return match ? parseInt(match[1], 10) : 0;
+  const upper = roll.toUpperCase().trim();
+
+  // Pure numeric 4+ digits: use last 3 digits as suffix
+  const pureNumber = upper.match(/^(\d+)$/);
+  if (pureNumber) {
+    const numStr = pureNumber[1];
+    if (numStr.length >= 4) {
+      return parseInt(numStr.slice(-3), 10);
+    }
+    return parseInt(numStr, 10);
+  }
+
+  // Alphanumeric: extract trailing digits
+  const match = roll.match(/(\d+)\s*(\([^)]*\))?$/);
+  if (match) return parseInt(match[1], 10);
+
+  return 0;
 }
 
 // Detect sequence gaps within a group's sorted members
