@@ -335,94 +335,97 @@ export interface InterleaveInfo {
   pattern: string;
   validated: boolean;
   failedAt: number | null;
+  columnWarnings?: string[];
 }
 
 /**
- * Interleave students from multiple departments using strict round-robin.
- * Handles unequal department sizes by skipping exhausted departments.
- * Validates that no two consecutive students share a department.
+ * Build a sequential pool: all students from dept 1, then dept 2, etc.
+ * Each department's students are sorted by numeric suffix.
+ * This ensures same-department students fill rows back-to-back.
  */
-export function interleaveByDepartment(
+export function buildSequentialPool(
   groups: Group[]
 ): { pool: { roll: string; groupId: string; color: string; hex: string }[]; info: InterleaveInfo } {
-  const emptyInfo: InterleaveInfo = { departmentNames: [], pattern: "", validated: true, failedAt: null };
+  const emptyInfo: InterleaveInfo = { departmentNames: [], pattern: "", validated: true, failedAt: null, columnWarnings: [] };
 
   if (groups.length === 0) return { pool: [], info: emptyInfo };
 
-  if (groups.length === 1) {
-    // Single department — no interleaving needed
-    const pool = groups[0].members.map(m => ({
-      roll: m, groupId: groups[0].id, color: groups[0].color, hex: groups[0].hex,
-    }));
-    return {
-      pool,
-      info: {
-        departmentNames: [groups[0].label],
-        pattern: "1",
-        validated: true,
-        failedAt: null,
-      },
-    };
-  }
-
-  // Build queues for each department
-  const queues = groups.map(g =>
-    g.members.map(m => ({ roll: m, groupId: g.id, color: g.color, hex: g.hex }))
-  );
-
-  const result: { roll: string; groupId: string; color: string; hex: string }[] = [];
-
-  // Round-robin: take one from each non-empty queue in turn
-  while (queues.some(q => q.length > 0)) {
-    for (const q of queues) {
-      if (q.length > 0) {
-        result.push(q.shift()!);
-      }
-    }
-  }
-
-  // Validate: no two consecutive students from the same department
-  let validated = true;
-  let failedAt: number | null = null;
-  for (let i = 0; i < result.length - 1; i++) {
-    if (result[i].groupId === result[i + 1].groupId) {
-      validated = false;
-      failedAt = i;
-      break;
+  // Concatenate all departments sequentially
+  const pool: { roll: string; groupId: string; color: string; hex: string }[] = [];
+  for (const g of groups) {
+    for (const m of g.members) {
+      pool.push({ roll: m, groupId: g.id, color: g.color, hex: g.hex });
     }
   }
 
   const pattern = groups.map((_, i) => i + 1).join("-");
 
   return {
-    pool: result,
+    pool,
     info: {
       departmentNames: groups.map(g => g.label),
       pattern,
-      validated,
-      failedAt,
+      validated: true,
+      failedAt: null,
+      columnWarnings: [],
     },
   };
 }
 
-// Step C — Normal Shuffle (with Smart Department Interleaving)
-// Students are interleaved round-robin across departments, then placed into seats
-// sequentially. This ensures no two students from the same department sit consecutively.
+/**
+ * After seats are filled, validate columns: check if any two consecutive
+ * students in the same column (vertically) are from the same department.
+ */
+export function validateColumns(seats: Seat[], layout: RoomLayout): string[] {
+  const warnings: string[] = [];
+
+  // For each column config, check each sub-column vertically
+  let seatOffset = 0;
+  for (let c = 0; c < layout.columns.length; c++) {
+    const col = layout.columns[c];
+    for (let sc = 0; sc < col.subColumns; sc++) {
+      // Collect students in this sub-column top to bottom
+      let prevGroupId: string | null = null;
+      for (let r = 0; r < col.rows; r++) {
+        const idx = seatOffset + r * col.subColumns + sc;
+        const seat = seats[idx];
+        if (seat?.rollNumber && seat.groupId) {
+          if (prevGroupId && seat.groupId === prevGroupId) {
+            const groupLabel = seat.groupId;
+            warnings.push(`Department appears consecutively in Column ${c + 1}, Sub-col ${sc + 1}`);
+          }
+          prevGroupId = seat.groupId;
+        } else {
+          prevGroupId = null;
+        }
+      }
+    }
+    seatOffset += col.subColumns * col.rows;
+  }
+
+  return warnings;
+}
+
+// Step C — Normal Shuffle (Sequential Department Filling)
+// Students from each department fill seats back-to-back, row by row.
+// Dept A fills first, then Dept B continues from where A ended, etc.
+// This ensures same-department students sit together in rows,
+// while columns (vertically) have different departments.
 export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Seat[]; overflow: string[]; interleaveInfo: InterleaveInfo } {
   const seats = createEmptyGrid(layout);
-  const emptyInfo: InterleaveInfo = { departmentNames: [], pattern: "", validated: true, failedAt: null };
+  const emptyInfo: InterleaveInfo = { departmentNames: [], pattern: "", validated: true, failedAt: null, columnWarnings: [] };
   if (groups.length === 0) return { seats, overflow: [], interleaveInfo: emptyInfo };
 
-  // STEP 1: Build sorted groups
+  // STEP 1: Sort each group's members by numeric suffix
   const sortedGroups = groups.map(g => ({
     ...g,
     members: [...g.members].sort((a, b) => extractNumericSuffix(a) - extractNumericSuffix(b)),
   }));
 
-  // STEP 2: Interleave students across departments
-  const { pool, info } = interleaveByDepartment(sortedGroups);
+  // STEP 2: Build sequential pool — all of dept 1, then dept 2, etc.
+  const { pool, info } = buildSequentialPool(sortedGroups);
 
-  // STEP 3: Place interleaved students into seats sequentially
+  // STEP 3: Fill seats sequentially — left to right, top to bottom, no gaps
   const capacity = seats.length;
   const overflow = pool.slice(capacity).map(p => p.roll);
   const toPlace = pool.slice(0, capacity);
@@ -440,6 +443,11 @@ export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Sea
   if (totalPlaced !== totalStudents) {
     console.error(`[normalShuffle] Assertion failed: placed(${totalPlaced}) !== total(${totalStudents})`);
   }
+
+  // STEP 5: Column validation — check for same-dept consecutive in columns
+  const columnWarnings = validateColumns(seats, layout);
+  info.columnWarnings = columnWarnings;
+  info.validated = columnWarnings.length === 0;
 
   return { seats, overflow, interleaveInfo: info };
 }
