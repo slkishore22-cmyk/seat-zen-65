@@ -326,124 +326,122 @@ function getNeighborGroupIds(seats: Seat[], layout: RoomLayout, idx: number): Se
   return neighbors;
 }
 
-// Step C — Normal Shuffle
-// Each sub-column is PERMANENTLY assigned to one department (wrapping).
-// Students fill vertically top-to-bottom via queue.shift() — pure sequential drain.
-// Missing roll numbers are never in the queue, so no seat is ever left empty for them.
-// Overflow pass fills remaining empty seats respecting no-horizontal-same-dept constraint.
-export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Seat[]; overflow: string[] } {
+// ==========================================
+// SMART DEPARTMENT INTERLEAVING
+// ==========================================
+
+export interface InterleaveInfo {
+  departmentNames: string[];
+  pattern: string;
+  validated: boolean;
+  failedAt: number | null;
+}
+
+/**
+ * Interleave students from multiple departments using strict round-robin.
+ * Handles unequal department sizes by skipping exhausted departments.
+ * Validates that no two consecutive students share a department.
+ */
+export function interleaveByDepartment(
+  groups: Group[]
+): { pool: { roll: string; groupId: string; color: string; hex: string }[]; info: InterleaveInfo } {
+  const emptyInfo: InterleaveInfo = { departmentNames: [], pattern: "", validated: true, failedAt: null };
+
+  if (groups.length === 0) return { pool: [], info: emptyInfo };
+
+  if (groups.length === 1) {
+    // Single department — no interleaving needed
+    const pool = groups[0].members.map(m => ({
+      roll: m, groupId: groups[0].id, color: groups[0].color, hex: groups[0].hex,
+    }));
+    return {
+      pool,
+      info: {
+        departmentNames: [groups[0].label],
+        pattern: "1",
+        validated: true,
+        failedAt: null,
+      },
+    };
+  }
+
+  // Build queues for each department
+  const queues = groups.map(g =>
+    g.members.map(m => ({ roll: m, groupId: g.id, color: g.color, hex: g.hex }))
+  );
+
+  const result: { roll: string; groupId: string; color: string; hex: string }[] = [];
+
+  // Round-robin: take one from each non-empty queue in turn
+  while (queues.some(q => q.length > 0)) {
+    for (const q of queues) {
+      if (q.length > 0) {
+        result.push(q.shift()!);
+      }
+    }
+  }
+
+  // Validate: no two consecutive students from the same department
+  let validated = true;
+  let failedAt: number | null = null;
+  for (let i = 0; i < result.length - 1; i++) {
+    if (result[i].groupId === result[i + 1].groupId) {
+      validated = false;
+      failedAt = i;
+      break;
+    }
+  }
+
+  const pattern = groups.map((_, i) => i + 1).join("-");
+
+  return {
+    pool: result,
+    info: {
+      departmentNames: groups.map(g => g.label),
+      pattern,
+      validated,
+      failedAt,
+    },
+  };
+}
+
+// Step C — Normal Shuffle (with Smart Department Interleaving)
+// Students are interleaved round-robin across departments, then placed into seats
+// sequentially. This ensures no two students from the same department sit consecutively.
+export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Seat[]; overflow: string[]; interleaveInfo: InterleaveInfo } {
   const seats = createEmptyGrid(layout);
-  if (groups.length === 0) return { seats, overflow: [] };
+  const emptyInfo: InterleaveInfo = { departmentNames: [], pattern: "", validated: true, failedAt: null };
+  if (groups.length === 0) return { seats, overflow: [], interleaveInfo: emptyInfo };
 
-  const numGroups = groups.length;
-
-  // STEP 1: Build sorted queues — only real students, no placeholders
+  // STEP 1: Build sorted groups
   const sortedGroups = groups.map(g => ({
     ...g,
     members: [...g.members].sort((a, b) => extractNumericSuffix(a) - extractNumericSuffix(b)),
   }));
 
-  // Each group gets its own queue of real students only
-  const groupQueues: string[][] = sortedGroups.map(g => [...g.members]);
+  // STEP 2: Interleave students across departments
+  const { pool, info } = interleaveByDepartment(sortedGroups);
 
-  // STEP 2 + 3: Fill each sub-column top-to-bottom with its permanently assigned group
-  // Assignment: globalSubCol % numGroups — NEVER changes, NEVER mixes departments
-  let seatIdx = 0;
-  let globalSubCol = 0;
+  // STEP 3: Place interleaved students into seats sequentially
+  const capacity = seats.length;
+  const overflow = pool.slice(capacity).map(p => p.roll);
+  const toPlace = pool.slice(0, capacity);
 
-  for (let c = 0; c < layout.columns.length; c++) {
-    const col = layout.columns[c];
-    for (let sc = 0; sc < col.subColumns; sc++) {
-      const groupIdx = globalSubCol % numGroups; // permanent assignment
-      const group = sortedGroups[groupIdx];
-      const queue = groupQueues[groupIdx];
-
-      // Fill this sub-column top to bottom — pure sequential drain
-      for (let r = 0; r < col.rows; r++) {
-        const idx = seatIdx + r * col.subColumns + sc;
-        if (queue.length > 0) {
-          const roll = queue.shift()!; // next real student, never skip
-          seats[idx].rollNumber = roll;
-          seats[idx].groupId = group.id;
-          seats[idx].color = group.color;
-          seats[idx].hex = group.hex;
-        }
-        // else: seat stays empty — this group is truly exhausted
-      }
-      globalSubCol++;
-    }
-    seatIdx += col.subColumns * col.rows;
+  for (let i = 0; i < toPlace.length; i++) {
+    seats[i].rollNumber = toPlace[i].roll;
+    seats[i].groupId = toPlace[i].groupId;
+    seats[i].color = toPlace[i].color;
+    seats[i].hex = toPlace[i].hex;
   }
 
-  // STEP 4: Overflow pass — fill remaining empty seats with leftover students
-  const remaining: { roll: string; group: typeof sortedGroups[0] }[] = [];
-  for (let gi = 0; gi < numGroups; gi++) {
-    const queue = groupQueues[gi];
-    for (const roll of queue) {
-      remaining.push({ roll, group: sortedGroups[gi] });
-    }
-    queue.length = 0;
+  // STEP 4: Assertion — total placed + overflow must equal total students
+  const totalStudents = groups.reduce((sum, g) => sum + g.members.length, 0);
+  const totalPlaced = toPlace.length + overflow.length;
+  if (totalPlaced !== totalStudents) {
+    console.error(`[normalShuffle] Assertion failed: placed(${totalPlaced}) !== total(${totalStudents})`);
   }
 
-  if (remaining.length > 0) {
-    const emptyIndices: number[] = [];
-    for (let i = 0; i < seats.length; i++) {
-      if (!seats[i].rollNumber) emptyIndices.push(i);
-    }
-
-    for (const emptyIdx of emptyIndices) {
-      if (remaining.length === 0) break;
-
-      // Get ONLY horizontal neighbors (left and right in same row)
-      const neighborGroupIds = new Set<string>();
-      let colStart = 0;
-      let col: ColumnConfig | null = null;
-      for (let ci = 0; ci < layout.columns.length; ci++) {
-        const size = layout.columns[ci].subColumns * layout.columns[ci].rows;
-        if (emptyIdx < colStart + size) {
-          col = layout.columns[ci];
-          break;
-        }
-        colStart += size;
-      }
-      if (col) {
-        const localIdx = emptyIdx - colStart;
-        const row = Math.floor(localIdx / col.subColumns);
-        const sc = localIdx % col.subColumns;
-        // Left neighbor
-        if (sc > 0) {
-          const leftIdx = colStart + row * col.subColumns + (sc - 1);
-          if (seats[leftIdx].groupId) neighborGroupIds.add(seats[leftIdx].groupId!);
-        }
-        // Right neighbor
-        if (sc < col.subColumns - 1) {
-          const rightIdx = colStart + row * col.subColumns + (sc + 1);
-          if (seats[rightIdx].groupId) neighborGroupIds.add(seats[rightIdx].groupId!);
-        }
-      }
-
-      // Find first student that doesn't conflict horizontally
-      let bestIdx = -1;
-      for (let i = 0; i < remaining.length; i++) {
-        if (!neighborGroupIds.has(remaining[i].group.id)) {
-          bestIdx = i;
-          break;
-        }
-      }
-
-      // No conflict-free student available — place next anyway (no empty seats)
-      if (bestIdx === -1) bestIdx = 0;
-
-      const student = remaining.splice(bestIdx, 1)[0];
-      seats[emptyIdx].rollNumber = student.roll;
-      seats[emptyIdx].groupId = student.group.id;
-      seats[emptyIdx].color = student.group.color;
-      seats[emptyIdx].hex = student.group.hex;
-    }
-  }
-
-  const overflow = remaining.map(r => r.roll);
-  return { seats, overflow };
+  return { seats, overflow, interleaveInfo: info };
 }
 
 // Check full-row conflict: no two same-group students in the same row within a column
@@ -605,6 +603,7 @@ export interface RoomResult {
   overflow: string[];
   conflictCount: number;
   studentCount: number;
+  interleaveInfo?: InterleaveInfo;
 }
 
 export function distributeStudentsAcrossRooms(
@@ -672,11 +671,13 @@ export function distributeStudentsAcrossRooms(
     let seats: Seat[];
     let overflow: string[];
     let conflictCount = 0;
+    let interleaveInfo: InterleaveInfo | undefined;
 
     if (shuffleType === "normal") {
       const r = normalShuffle(roomGroups, layout);
       seats = r.seats;
       overflow = r.overflow;
+      interleaveInfo = r.interleaveInfo;
     } else {
       const r = universityShuffle(roomGroups, layout);
       seats = r.seats;
@@ -692,6 +693,7 @@ export function distributeStudentsAcrossRooms(
       overflow,
       conflictCount,
       studentCount: seats.filter(s => s.rollNumber).length,
+      interleaveInfo,
     });
   }
 
