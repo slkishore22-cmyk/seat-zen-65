@@ -1,10 +1,10 @@
 import { useMemo, useState, useCallback } from "react";
-import { Group, RoomLayout, Seat, getConflictIndices, normalShuffle, universityShuffle, getSubColGroupAssignment, detectSequenceGaps, extractNumericSuffix } from "@/lib/shuffleEngine";
+import { Group, RoomLayout, Seat, getConflictIndices, normalShuffle, universityShuffle, getSubColGroupAssignment, detectSequenceGaps, extractNumericSuffix, InterleaveInfo } from "@/lib/shuffleEngine";
 import { ShuffleType } from "@/pages/Index";
 import SeatCard from "@/components/SeatCard";
 import ColorLegend from "@/components/ColorLegend";
 import ActionBar from "@/components/ActionBar";
-import { AlertTriangle, X } from "lucide-react";
+import { AlertTriangle, X, CheckCircle2, AlertCircle } from "lucide-react";
 
 interface Props {
   layout: RoomLayout;
@@ -19,15 +19,18 @@ interface Props {
   onNewRoom: () => void;
   onSave: (name: string) => void;
   readOnly: boolean;
+  interleaveInfo?: InterleaveInfo;
 }
 
 const Step4RoomTable = ({
   layout, groups, seatMap, setSeatMap, overflow, conflictCount,
   setConflictCount, setOverflow, shuffleType, onNewRoom, onSave, readOnly,
+  interleaveInfo,
 }: Props) => {
   const [animKey, setAnimKey] = useState(0);
   const [showGapWarning, setShowGapWarning] = useState(true);
   const [actionBarHeight, setActionBarHeight] = useState(96);
+  const [localInterleaveInfo, setLocalInterleaveInfo] = useState<InterleaveInfo | undefined>(interleaveInfo);
   const conflictSet = useMemo(() => getConflictIndices(seatMap, layout), [seatMap, layout]);
 
   // Compute sequence gaps for normal shuffle
@@ -81,6 +84,7 @@ const Step4RoomTable = ({
       setSeatMap(result.seats);
       setOverflow(result.overflow);
       setConflictCount(0);
+      setLocalInterleaveInfo(result.interleaveInfo);
     } else {
       const r = universityShuffle(shuffledGroups, layout);
       setSeatMap(r.seats);
@@ -181,6 +185,37 @@ const Step4RoomTable = ({
       )}
 
       <ColorLegend groups={groups} />
+
+      {/* Interleave summary card for normal shuffle */}
+      {shuffleType === "normal" && (localInterleaveInfo || interleaveInfo) && (() => {
+        const info = localInterleaveInfo || interleaveInfo;
+        return (
+          <div className="glass-card p-4 mt-4 mb-2 max-w-3xl mx-auto" style={{
+            backgroundColor: info?.validated ? "#34C75910" : "#FF3B3010",
+            borderColor: info?.validated ? "#34C75940" : "#FF3B3040",
+          }}>
+            <div className="flex items-start gap-3">
+              {info?.validated ? (
+                <CheckCircle2 size={16} className="mt-0.5 flex-shrink-0" style={{ color: "#34C759" }} />
+              ) : (
+                <AlertCircle size={16} className="mt-0.5 flex-shrink-0" style={{ color: "#FF3B30" }} />
+              )}
+              <div className="flex-1 min-w-0">
+                <h4 className="text-xs font-semibold mb-1.5">Smart Department Interleaving</h4>
+                <div className="space-y-0.5 text-[11px] text-muted-foreground">
+                  <p>Departments detected: <span className="font-medium text-foreground">{info?.departmentNames.join(", ")}</span></p>
+                  <p>Interleave pattern: <span className="font-mono font-medium text-foreground">{info?.pattern}</span></p>
+                  {info?.validated ? (
+                    <p style={{ color: "#34C759" }}>✅ No two students from same department seated consecutively</p>
+                  ) : (
+                    <p style={{ color: "#FF3B30" }}>⚠️ Interleaving issue detected at seat {(info?.failedAt ?? 0) + 1}. Please regenerate.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Room grid */}
       <div className="overflow-x-auto mt-6">
