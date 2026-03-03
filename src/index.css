@@ -212,4 +212,10 @@
   .float-animation {
     animation: gentle-float 3s ease-in-out infinite;
   }
+
+  /* Swap flash animation */
+  @keyframes swap-flash {
+    0% { background-color: rgba(255, 204, 0, 0.4); }
+    100% { background-color: transparent; }
+  }
 }
