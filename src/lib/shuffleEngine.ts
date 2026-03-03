@@ -266,19 +266,7 @@ export function detectSequenceGaps(members: string[]): { missing: number[]; rang
 }
 
 // Get the sub-column to group assignment for normal shuffle
-export function getSubColGroupAssignment(layout: RoomLayout, groups: Group[]): { columnIndex: number; subColIndex: number; group: Group | null }[] {
-  const assignments: { columnIndex: number; subColIndex: number; group: Group | null }[] = [];
-  if (groups.length === 0) return assignments;
-  let globalSubCol = 0;
-  for (let c = 0; c < layout.columns.length; c++) {
-    for (let sc = 0; sc < layout.columns[c].subColumns; sc++) {
-      const groupIdx = globalSubCol % groups.length;
-      assignments.push({ columnIndex: c, subColIndex: sc, group: groups[groupIdx] });
-      globalSubCol++;
-    }
-  }
-  return assignments;
-}
+// getSubColGroupAssignment moved into normalShuffle section below
 
 // Helper: get horizontal and vertical neighbors' groupIds for a seat index
 function getNeighborGroupIds(seats: Seat[], layout: RoomLayout, idx: number): Set<string> {
@@ -327,7 +315,7 @@ function getNeighborGroupIds(seats: Seat[], layout: RoomLayout, idx: number): Se
 }
 
 // ==========================================
-// SMART DEPARTMENT INTERLEAVING
+// NORMAL SHUFFLE — Sub-column-based vertical fill
 // ==========================================
 
 export interface InterleaveInfo {
@@ -339,59 +327,21 @@ export interface InterleaveInfo {
 }
 
 /**
- * Build a sequential pool: all students from dept 1, then dept 2, etc.
- * Each department's students are sorted by numeric suffix.
- * This ensures same-department students fill rows back-to-back.
- */
-export function buildSequentialPool(
-  groups: Group[]
-): { pool: { roll: string; groupId: string; color: string; hex: string }[]; info: InterleaveInfo } {
-  const emptyInfo: InterleaveInfo = { departmentNames: [], pattern: "", validated: true, failedAt: null, columnWarnings: [] };
-
-  if (groups.length === 0) return { pool: [], info: emptyInfo };
-
-  // Concatenate all departments sequentially
-  const pool: { roll: string; groupId: string; color: string; hex: string }[] = [];
-  for (const g of groups) {
-    for (const m of g.members) {
-      pool.push({ roll: m, groupId: g.id, color: g.color, hex: g.hex });
-    }
-  }
-
-  const pattern = groups.map((_, i) => i + 1).join("-");
-
-  return {
-    pool,
-    info: {
-      departmentNames: groups.map(g => g.label),
-      pattern,
-      validated: true,
-      failedAt: null,
-      columnWarnings: [],
-    },
-  };
-}
-
-/**
- * After seats are filled, validate columns: check if any two consecutive
- * students in the same column (vertically) are from the same department.
+ * Validate columns: check if any two consecutive students
+ * in the same sub-column (vertically) are from the same department.
  */
 export function validateColumns(seats: Seat[], layout: RoomLayout): string[] {
   const warnings: string[] = [];
-
-  // For each column config, check each sub-column vertically
   let seatOffset = 0;
   for (let c = 0; c < layout.columns.length; c++) {
     const col = layout.columns[c];
     for (let sc = 0; sc < col.subColumns; sc++) {
-      // Collect students in this sub-column top to bottom
       let prevGroupId: string | null = null;
       for (let r = 0; r < col.rows; r++) {
         const idx = seatOffset + r * col.subColumns + sc;
         const seat = seats[idx];
         if (seat?.rollNumber && seat.groupId) {
           if (prevGroupId && seat.groupId === prevGroupId) {
-            const groupLabel = seat.groupId;
             warnings.push(`Department appears consecutively in Column ${c + 1}, Sub-col ${sc + 1}`);
           }
           prevGroupId = seat.groupId;
@@ -402,54 +352,165 @@ export function validateColumns(seats: Seat[], layout: RoomLayout): string[] {
     }
     seatOffset += col.subColumns * col.rows;
   }
-
   return warnings;
 }
 
-// Step C — Normal Shuffle (Sequential Department Filling)
-// Students from each department fill seats back-to-back, row by row.
-// Dept A fills first, then Dept B continues from where A ended, etc.
-// This ensures same-department students sit together in rows,
-// while columns (vertically) have different departments.
+/**
+ * Get sub-column → department assignment for display labels.
+ */
+export function getSubColGroupAssignment(layout: RoomLayout, groups: Group[]): { columnIndex: number; subColIndex: number; group: Group | null }[] {
+  const assignments: { columnIndex: number; subColIndex: number; group: Group | null }[] = [];
+  if (groups.length === 0) return assignments;
+  let globalSubCol = 0;
+  for (let c = 0; c < layout.columns.length; c++) {
+    for (let sc = 0; sc < layout.columns[c].subColumns; sc++) {
+      const groupIdx = globalSubCol % groups.length;
+      assignments.push({ columnIndex: c, subColIndex: sc, group: groups[groupIdx] });
+      globalSubCol++;
+    }
+  }
+  return assignments;
+}
+
+/**
+ * NORMAL SHUFFLE — Complete rewrite.
+ * 
+ * THE LAW:
+ *   - Each sub-column is PERMANENTLY assigned to one department (round-robin).
+ *   - Fill each sub-column top-to-bottom with that department's sorted students.
+ *   - Overflow students fill remaining empty seats, preferring non-conflicting neighbors.
+ */
 export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Seat[]; overflow: string[]; interleaveInfo: InterleaveInfo } {
   const seats = createEmptyGrid(layout);
   const emptyInfo: InterleaveInfo = { departmentNames: [], pattern: "", validated: true, failedAt: null, columnWarnings: [] };
   if (groups.length === 0) return { seats, overflow: [], interleaveInfo: emptyInfo };
 
-  // STEP 1: Sort each group's members by numeric suffix
-  const sortedGroups = groups.map(g => ({
-    ...g,
-    members: [...g.members].sort((a, b) => extractNumericSuffix(a) - extractNumericSuffix(b)),
-  }));
+  const numGroups = groups.length;
 
-  // STEP 2: Build sequential pool — all of dept 1, then dept 2, etc.
-  const { pool, info } = buildSequentialPool(sortedGroups);
+  // STEP 1: Sort each group by numeric suffix, create queues
+  const groupQueues: string[][] = groups.map(g =>
+    [...g.members].sort((a, b) => extractNumericSuffix(a) - extractNumericSuffix(b))
+  );
 
-  // STEP 3: Fill seats sequentially — left to right, top to bottom, no gaps
-  const capacity = seats.length;
-  const overflow = pool.slice(capacity).map(p => p.roll);
-  const toPlace = pool.slice(0, capacity);
+  // STEP 2 + 3: Permanent sub-column assignment + vertical fill
+  // Seat grid is stored in order: for each column, rows × subCols
+  // Index = colOffset + row * subCols + sc
+  let seatOffset = 0;
+  for (let c = 0; c < layout.columns.length; c++) {
+    const col = layout.columns[c];
+    // For each sub-column, determine its permanent department
+    for (let sc = 0; sc < col.subColumns; sc++) {
+      // Count global sub-column index for department assignment
+      let globalSc = sc;
+      for (let pc = 0; pc < c; pc++) {
+        globalSc += layout.columns[pc].subColumns;
+      }
+      const groupIdx = globalSc % numGroups;
+      const queue = groupQueues[groupIdx];
+      const group = groups[groupIdx];
 
-  for (let i = 0; i < toPlace.length; i++) {
-    seats[i].rollNumber = toPlace[i].roll;
-    seats[i].groupId = toPlace[i].groupId;
-    seats[i].color = toPlace[i].color;
-    seats[i].hex = toPlace[i].hex;
+      // Fill this sub-column top to bottom
+      for (let r = 0; r < col.rows; r++) {
+        const idx = seatOffset + r * col.subColumns + sc;
+        if (queue.length > 0) {
+          const roll = queue.shift()!;
+          seats[idx].rollNumber = roll;
+          seats[idx].groupId = group.id;
+          seats[idx].color = group.color;
+          seats[idx].hex = group.hex;
+        }
+        // else: seat stays empty
+      }
+    }
+    seatOffset += col.subColumns * col.rows;
   }
 
-  // STEP 4: Assertion — total placed + overflow must equal total students
+  // STEP 4: Overflow fill — collect remaining students and empty seats
+  const remaining: { roll: string; group: Group }[] = [];
+  for (let i = 0; i < numGroups; i++) {
+    while (groupQueues[i].length > 0) {
+      remaining.push({ roll: groupQueues[i].shift()!, group: groups[i] });
+    }
+  }
+
+  const emptySeats: number[] = [];
+  for (let i = 0; i < seats.length; i++) {
+    if (!seats[i].rollNumber) {
+      emptySeats.push(i);
+    }
+  }
+
+  // Separate true overflow (not enough seats) from fillable empties
+  const overflow: string[] = [];
+
+  for (const emptyIdx of emptySeats) {
+    if (remaining.length === 0) break;
+
+    // Find neighbors in the same row
+    const seat = seats[emptyIdx];
+    const col = layout.columns[seat.columnIndex];
+    let colStart = 0;
+    for (let pc = 0; pc < seat.columnIndex; pc++) {
+      colStart += layout.columns[pc].subColumns * layout.columns[pc].rows;
+    }
+    const localIdx = emptyIdx - colStart;
+    const sc = localIdx % col.subColumns;
+
+    const leftGroupId = sc > 0 ? seats[emptyIdx - 1].groupId : null;
+    const rightGroupId = sc < col.subColumns - 1 ? seats[emptyIdx + 1].groupId : null;
+
+    // Try to find a student that doesn't conflict with neighbors
+    let placed = false;
+    for (let i = 0; i < remaining.length; i++) {
+      const s = remaining[i];
+      if (s.group.id !== leftGroupId && s.group.id !== rightGroupId) {
+        seats[emptyIdx].rollNumber = s.roll;
+        seats[emptyIdx].groupId = s.group.id;
+        seats[emptyIdx].color = s.group.color;
+        seats[emptyIdx].hex = s.group.hex;
+        remaining.splice(i, 1);
+        placed = true;
+        break;
+      }
+    }
+
+    if (!placed) {
+      // Place anyway (conflict)
+      const s = remaining.shift()!;
+      seats[emptyIdx].rollNumber = s.roll;
+      seats[emptyIdx].groupId = s.group.id;
+      seats[emptyIdx].color = s.group.color;
+      seats[emptyIdx].hex = s.group.hex;
+    }
+  }
+
+  // Any remaining students that couldn't be placed = overflow
+  for (const s of remaining) {
+    overflow.push(s.roll);
+  }
+
+  // Assertion check
   const totalStudents = groups.reduce((sum, g) => sum + g.members.length, 0);
-  const totalPlaced = toPlace.length + overflow.length;
+  const totalPlaced = seats.filter(s => s.rollNumber).length + overflow.length;
   if (totalPlaced !== totalStudents) {
     console.error(`[normalShuffle] Assertion failed: placed(${totalPlaced}) !== total(${totalStudents})`);
   }
 
-  // STEP 5: Column validation — check for same-dept consecutive in columns
+  // Column validation
   const columnWarnings = validateColumns(seats, layout);
-  info.columnWarnings = columnWarnings;
-  info.validated = columnWarnings.length === 0;
+  const pattern = groups.map((_, i) => i + 1).join("-");
 
-  return { seats, overflow, interleaveInfo: info };
+  return {
+    seats,
+    overflow,
+    interleaveInfo: {
+      departmentNames: groups.map(g => g.label),
+      pattern,
+      validated: columnWarnings.length === 0,
+      failedAt: null,
+      columnWarnings,
+    },
+  };
 }
 
 // Check full-row conflict: no two same-group students in the same row within a column
