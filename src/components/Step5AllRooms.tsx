@@ -1,10 +1,9 @@
 import { useMemo, useState, useCallback, useEffect, useRef } from "react";
-import { DndContext, DragOverlay, useSensor, useSensors, PointerSensor, TouchSensor, DragStartEvent, DragEndEvent } from "@dnd-kit/core";
-import { getConflictIndices, getSubColGroupAssignment, detectSequenceGaps, extractNumericSuffix, normalShuffle, universityShuffle, distributeStudentsAcrossRooms, RoomResult, Seat, RoomLayout, InterleaveInfo } from "@/lib/shuffleEngine";
+import { getConflictIndices, detectSequenceGaps, normalShuffle, universityShuffle, distributeStudentsAcrossRooms, RoomResult, Seat, RoomLayout, InterleaveInfo } from "@/lib/shuffleEngine";
 import { useExamSession, SavedSession } from "@/hooks/useExamSession";
-import DraggableSeatCard from "@/components/DraggableSeatCard";
+import SeatCard from "@/components/SeatCard";
 import ColorLegend from "@/components/ColorLegend";
-import { AlertTriangle, Shuffle, Save, Plus, Printer, X, CheckCircle2, AlertCircle, Pencil, Undo2 } from "lucide-react";
+import { AlertTriangle, Shuffle, Save, Plus, Printer, Pencil, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 
 interface Props {
@@ -35,16 +34,11 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
   const [actionBarHeight, setActionBarHeight] = useState(96);
   const barRef = useRef<HTMLDivElement>(null);
 
-  // Edit mode
   const [editMode, setEditMode] = useState(false);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [dragSourceId, setDragSourceId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [swappedIds, setSwappedIds] = useState<Set<string>>(new Set());
   const [history, setHistory] = useState<Seat[][]>([]);
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } })
-  );
 
   const activeResult = roomResults[activeRoomTab];
   const activeLayout: RoomLayout | null = activeResult ? { columns: rooms[activeResult.roomIndex]?.columns || [] } : null;
@@ -61,47 +55,26 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
     }
   }, []);
 
-  const conflictSet = useMemo(() => {
-    if (!activeResult || !activeLayout) return new Set<number>();
-    return getConflictIndices(activeResult.seats, activeLayout);
-  }, [activeResult, activeLayout]);
-
-  const seatSequenceNumbers = useMemo(() => {
-    if (shuffleType !== "normal" || !activeResult) return new Map<number, number>();
-    const counters = new Map<string, number>();
-    const result = new Map<number, number>();
-    for (let i = 0; i < activeResult.seats.length; i++) {
-      const seat = activeResult.seats[i];
-      if (seat.rollNumber && seat.groupId) {
-        const count = (counters.get(seat.groupId) || 0) + 1;
-        counters.set(seat.groupId, count);
-        result.set(i, count);
-      }
-    }
-    return result;
-  }, [activeResult, shuffleType]);
-
-  const subColAssignments = useMemo(() => {
-    if (shuffleType !== "normal" || !activeResult || !activeLayout) return [];
-    return getSubColGroupAssignment(activeLayout, activeResult.groups);
-  }, [activeLayout, activeResult, shuffleType]);
-
   const totalStudents = roomResults.reduce((s, r) => s + r.studentCount, 0);
 
-  // DnD
-  const handleDragStart = useCallback((e: DragStartEvent) => setActiveId(e.active.id as string), []);
-  const handleDragEnd = useCallback((e: DragEndEvent) => {
-    setActiveId(null);
-    if (!e.over || e.active.id === e.over.id || !activeLayout) return;
-    const from = parseDndId(e.active.id as string);
-    const to = parseDndId(e.over.id as string);
-    if (!from || !to) return;
+  // Drag handlers
+  const handleDragStart = useCallback((_e: React.DragEvent, id: string) => setDragSourceId(id), []);
+  const handleDragOver = useCallback((e: React.DragEvent, id: string) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDragOverId(id); }, []);
+  const handleDragLeave = useCallback(() => setDragOverId(null), []);
+  const handleDragEnd = useCallback(() => { setDragSourceId(null); setDragOverId(null); }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    setDragOverId(null);
+    if (!dragSourceId || dragSourceId === targetId || !activeLayout || !activeResult) { setDragSourceId(null); return; }
+    const from = parseDndId(dragSourceId);
+    const to = parseDndId(targetId);
+    if (!from || !to) { setDragSourceId(null); return; }
     const fromIdx = seatFlatIndex(activeLayout, from.ci, from.ri, from.si);
     const toIdx = seatFlatIndex(activeLayout, to.ci, to.ri, to.si);
 
     setHistory(prev => [...prev.slice(-9), [...activeResult.seats.map(s => ({ ...s }))]]);
-
-    const newSeats = [...activeResult.seats.map(s => ({ ...s }))];
+    const newSeats = activeResult.seats.map(s => ({ ...s }));
     const temp = { ...newSeats[fromIdx] };
     newSeats[fromIdx] = { ...newSeats[fromIdx], rollNumber: newSeats[toIdx].rollNumber, groupId: newSeats[toIdx].groupId, color: newSeats[toIdx].color, hex: newSeats[toIdx].hex };
     newSeats[toIdx] = { ...newSeats[toIdx], rollNumber: temp.rollNumber, groupId: temp.groupId, color: temp.color, hex: temp.hex };
@@ -110,10 +83,11 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
     newResults[activeRoomTab] = { ...newResults[activeRoomTab], seats: newSeats };
     setRoomResults(newResults);
 
-    const ids = new Set([e.active.id as string, e.over.id as string]);
+    const ids = new Set([dragSourceId, targetId]);
     setSwappedIds(ids);
     setTimeout(() => setSwappedIds(new Set()), 450);
-  }, [activeResult, activeLayout, roomResults, activeRoomTab, setRoomResults]);
+    setDragSourceId(null);
+  }, [dragSourceId, activeLayout, activeResult, roomResults, activeRoomTab, setRoomResults]);
 
   const handleUndo = useCallback(() => {
     if (history.length === 0) return;
@@ -123,13 +97,6 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
     newResults[activeRoomTab] = { ...newResults[activeRoomTab], seats: prev };
     setRoomResults(newResults);
   }, [history, roomResults, activeRoomTab, setRoomResults]);
-
-  const activeSeat = useMemo(() => {
-    if (!activeId || !activeLayout || !activeResult) return null;
-    const pos = parseDndId(activeId);
-    if (!pos) return null;
-    return activeResult.seats[seatFlatIndex(activeLayout, pos.ci, pos.ri, pos.si)] || null;
-  }, [activeId, activeLayout, activeResult]);
 
   const handleReshuffleThis = useCallback(() => {
     if (!activeResult || !activeLayout) return;
@@ -186,7 +153,6 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
 
   if (!activeResult || !activeLayout) return null;
 
-  const conflictCountComputed = conflictSet.size;
   let globalIdx = 0;
 
   return (
@@ -210,23 +176,8 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
       </div>
 
       <div className="text-center text-xs text-muted-foreground mb-4">
-        {activeResult.studentCount} students · {activeResult.groups.length} departments · {conflictCountComputed} conflicts
+        {activeResult.studentCount} students · {activeResult.groups.length} departments
       </div>
-
-      {/* Conflict / success banner */}
-      {conflictCountComputed > 0 && (
-        <div className="glass-card p-3 mb-4 max-w-3xl mx-auto flex items-center justify-center gap-3" style={{ backgroundColor: "#FF3B3010", borderColor: "#FF3B3040" }}>
-          <AlertTriangle size={14} style={{ color: "#FF3B30" }} />
-          <span className="text-sm font-medium" style={{ color: "#FF3B30" }}>⚠️ {conflictCountComputed} conflicts — same department students are adjacent</span>
-          {!editMode && !readOnly && <span className="text-xs text-muted-foreground ml-2">Tap Edit Mode to fix</span>}
-        </div>
-      )}
-      {conflictCountComputed === 0 && activeResult.seats.some(s => s.rollNumber) && (
-        <div className="glass-card p-3 mb-4 max-w-3xl mx-auto flex items-center justify-center gap-2" style={{ backgroundColor: "#34C75910", borderColor: "#34C75940" }}>
-          <CheckCircle2 size={14} style={{ color: "#34C759" }} />
-          <span className="text-sm font-medium" style={{ color: "#34C759" }}>✓ No conflicts — all departments properly separated</span>
-        </div>
-      )}
 
       {editMode && (
         <div className="glass-card p-4 mb-4 max-w-3xl mx-auto text-center" style={{ backgroundColor: "rgba(0, 122, 255, 0.08)", borderColor: "rgba(0, 122, 255, 0.3)" }}>
@@ -237,38 +188,16 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
 
       <ColorLegend groups={activeResult.groups} />
 
-      {shuffleType === "normal" && activeResult.interleaveInfo && (() => {
-        const info = activeResult.interleaveInfo;
-        const hasWarnings = (info.columnWarnings?.length ?? 0) > 0;
-        return (
-          <div className="glass-card p-4 mt-4 mb-2 max-w-3xl mx-auto" style={{ backgroundColor: !hasWarnings ? "#34C75910" : "#FF950010", borderColor: !hasWarnings ? "#34C75940" : "#FF950040" }}>
-            <div className="flex items-start gap-3">
-              {!hasWarnings ? <CheckCircle2 size={16} className="mt-0.5 flex-shrink-0" style={{ color: "#34C759" }} /> : <AlertCircle size={16} className="mt-0.5 flex-shrink-0" style={{ color: "#FF9500" }} />}
-              <div className="flex-1 min-w-0">
-                <h4 className="text-xs font-semibold mb-1.5">Department Arrangement</h4>
-                <div className="space-y-0.5 text-[11px] text-muted-foreground">
-                  <p>Departments detected: <span className="font-medium text-foreground">{info.departmentNames.join(", ")}</span></p>
-                  <p>Sub-column pattern: <span className="font-mono font-medium text-foreground">{info.pattern}</span> (each sub-column = one department)</p>
-                  {!hasWarnings ? <p style={{ color: "#34C759" }}>✅ No same-department students appear consecutively in any column</p> : (
-                    <div>
-                      <p style={{ color: "#FF9500" }}>⚠️ Column warnings:</p>
-                      {info.columnWarnings?.map((w, i) => <p key={i} className="ml-2" style={{ color: "#FF9500" }}>• {w}</p>)}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* Room grid with DnD */}
-      <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <div className="overflow-x-auto mt-6">
-          <div className="flex gap-6 min-w-max justify-center" key={animKey}>
+      {/* Room grid */}
+      <div className="overflow-x-auto mt-6">
+        <div
+          className="min-w-max mx-auto"
+          style={{ background: "hsl(var(--card))", borderRadius: 16, padding: 24, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}
+          key={animKey}
+        >
+          <div className="flex" style={{ gap: 32 }}>
             {activeLayout.columns.map((col, ci) => {
               const startIdx = globalIdx;
-              const colAssignments = subColAssignments.filter(a => a.columnIndex === ci);
               const colSeats: Seat[][] = [];
               for (let r = 0; r < col.rows; r++) {
                 const row: Seat[] = [];
@@ -276,56 +205,45 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
                 colSeats.push(row);
               }
               return (
-                <div key={ci}>
-                  <h4 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-widest text-center mb-1">Column {ci + 1}</h4>
-                  {shuffleType === "normal" && colAssignments.length > 0 && (
-                    <div className="flex items-center gap-1 mb-2 justify-center">
-                      {colAssignments.map((a, i) => (
-                        <div key={i} className="flex items-center gap-0.5 px-1" style={{ width: 72, justifyContent: "center" }}>
-                          {a.group && (<><span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: a.group.hex }} /><span className="text-[8px] font-semibold uppercase tracking-wide truncate" style={{ color: a.group.hex }}>{a.group.label}</span></>)}
+                <div key={ci} className="flex" style={ci < activeLayout.columns.length - 1 ? { borderRight: "1px solid #E5E5EA", paddingRight: 32 } : undefined}>
+                  <div>
+                    <h4 style={{ fontSize: 11, letterSpacing: 1.5, color: "#86868B", textTransform: "uppercase", textAlign: "center", marginBottom: 12, fontWeight: 600 }}>
+                      Column {ci + 1}
+                    </h4>
+                    <div className="flex flex-col" style={{ gap: 8 }}>
+                      {colSeats.map((row, ri) => (
+                        <div key={ri} className="flex items-center" style={{ gap: 8 }}>
+                          <span style={{ width: 28, fontSize: 11, color: "#86868B", textAlign: "right", fontFamily: "-apple-system, sans-serif", flexShrink: 0 }}>R{ri + 1}</span>
+                          {row.map((seat, si) => {
+                            const idx = startIdx + ri * col.subColumns + si;
+                            const dndId = makeDndId(ci, ri, si);
+                            return (
+                              <SeatCard
+                                key={`${animKey}-${idx}`}
+                                seat={seat}
+                                dndId={dndId}
+                                editMode={editMode}
+                                isDragOver={dragOverId === dndId}
+                                isDragging={dragSourceId === dndId}
+                                justSwapped={swappedIds.has(dndId)}
+                                onDragStart={handleDragStart}
+                                onDragOver={handleDragOver}
+                                onDragLeave={handleDragLeave}
+                                onDrop={handleDrop}
+                                onDragEnd={handleDragEnd}
+                              />
+                            );
+                          })}
                         </div>
                       ))}
                     </div>
-                  )}
-                  <div className="flex flex-col gap-1.5">
-                    {colSeats.map((row, ri) => (
-                      <div key={ri} className="flex items-center gap-1">
-                        <span className="text-[9px] text-muted-foreground w-5 text-right mr-0.5 select-none">R{ri + 1}</span>
-                        {row.map((seat, si) => {
-                          const idx = startIdx + ri * col.subColumns + si;
-                          const dndId = makeDndId(ci, ri, si);
-                          return (
-                            <DraggableSeatCard
-                              key={`${animKey}-${idx}`}
-                              seat={seat}
-                              dndId={dndId}
-                              isConflict={conflictSet.has(idx)}
-                              delay={idx * 8}
-                              sequenceNumber={shuffleType === "normal" ? seatSequenceNumbers.get(idx) ?? null : null}
-                              editMode={editMode}
-                              isDragging={activeId === dndId}
-                              isOver={false}
-                              isAnyDragging={activeId !== null}
-                              justSwapped={swappedIds.has(dndId)}
-                            />
-                          );
-                        })}
-                      </div>
-                    ))}
                   </div>
                 </div>
               );
             })}
           </div>
         </div>
-        <DragOverlay>
-          {activeSeat ? (
-            <div className="seat-card relative" style={{ backgroundColor: activeSeat.hex ? `${activeSeat.hex}12` : undefined, borderLeft: `3px solid ${activeSeat.hex || "#ccc"}`, transform: "scale(1.08)", boxShadow: "0 20px 40px rgba(0,0,0,0.2)", opacity: 0.95, zIndex: 1000, cursor: "grabbing" }}>
-              <span className="text-[10px] font-semibold leading-none truncate">{activeSeat.rollNumber || "—"}</span>
-            </div>
-          ) : null}
-        </DragOverlay>
-      </DndContext>
+      </div>
 
       {activeResult.overflow.length > 0 && (
         <div className="glass-card p-5 mt-8 max-w-3xl mx-auto">
