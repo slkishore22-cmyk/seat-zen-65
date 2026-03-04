@@ -443,10 +443,28 @@ export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Sea
   // Separate true overflow (not enough seats) from fillable empties
   const overflow: string[] = [];
 
+  // Helper: get all groupIds in the same row within the same main column
+  function getRowGroupIds(seatIdx: number, excludeSc: number): Set<string> {
+    const s = seats[seatIdx];
+    const col = layout.columns[s.columnIndex];
+    let colStart = 0;
+    for (let pc = 0; pc < s.columnIndex; pc++) {
+      colStart += layout.columns[pc].subColumns * layout.columns[pc].rows;
+    }
+    const localIdx = seatIdx - colStart;
+    const row = Math.floor(localIdx / col.subColumns);
+    const occupied = new Set<string>();
+    for (let sc2 = 0; sc2 < col.subColumns; sc2++) {
+      if (sc2 === excludeSc) continue;
+      const otherIdx = colStart + row * col.subColumns + sc2;
+      if (seats[otherIdx].groupId) occupied.add(seats[otherIdx].groupId!);
+    }
+    return occupied;
+  }
+
   for (const emptyIdx of emptySeats) {
     if (remaining.length === 0) break;
 
-    // Find neighbors in the same row
     const seat = seats[emptyIdx];
     const col = layout.columns[seat.columnIndex];
     let colStart = 0;
@@ -456,14 +474,14 @@ export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Sea
     const localIdx = emptyIdx - colStart;
     const sc = localIdx % col.subColumns;
 
-    const leftGroupId = sc > 0 ? seats[emptyIdx - 1].groupId : null;
-    const rightGroupId = sc < col.subColumns - 1 ? seats[emptyIdx + 1].groupId : null;
+    // Get ALL groupIds already in this row (not just immediate neighbors)
+    const occupiedInRow = getRowGroupIds(emptyIdx, sc);
 
-    // Try to find a student that doesn't conflict with neighbors
+    // Try to find a student whose dept is NOT already in this row
     let placed = false;
     for (let i = 0; i < remaining.length; i++) {
       const s = remaining[i];
-      if (s.group.id !== leftGroupId && s.group.id !== rightGroupId) {
+      if (!occupiedInRow.has(s.group.id)) {
         seats[emptyIdx].rollNumber = s.roll;
         seats[emptyIdx].groupId = s.group.id;
         seats[emptyIdx].color = s.group.color;
@@ -474,13 +492,54 @@ export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Sea
       }
     }
 
-    if (!placed) {
-      // Place anyway (conflict)
-      const s = remaining.shift()!;
+    // No conflict-free student — pick least-represented dept in this row
+    // AND ensure not adjacent to same dept
+    if (!placed && remaining.length > 0) {
+      // Count dept occurrences in this row
+      const rowDeptCount: Record<string, number> = {};
+      for (let sc2 = 0; sc2 < col.subColumns; sc2++) {
+        if (sc2 === sc) continue;
+        const otherIdx = colStart + Math.floor(localIdx / col.subColumns) * col.subColumns + sc2;
+        const gid = seats[otherIdx].groupId;
+        if (gid) rowDeptCount[gid] = (rowDeptCount[gid] || 0) + 1;
+      }
+
+      // Get immediate neighbor groupIds for adjacency check
+      const leftGroupId = sc > 0 ? seats[emptyIdx - 1].groupId : null;
+      const rightGroupId = sc < col.subColumns - 1 ? seats[emptyIdx + 1].groupId : null;
+
+      // First pass: least-represented AND not adjacent
+      let bestIndex = -1;
+      let bestCount = Infinity;
+      for (let i = 0; i < remaining.length; i++) {
+        const gid = remaining[i].group.id;
+        if (gid === leftGroupId || gid === rightGroupId) continue;
+        const cnt = rowDeptCount[gid] || 0;
+        if (cnt < bestCount) {
+          bestCount = cnt;
+          bestIndex = i;
+        }
+      }
+
+      // Second pass: if all candidates are adjacent, pick least-represented anyway
+      if (bestIndex === -1) {
+        for (let i = 0; i < remaining.length; i++) {
+          const cnt = rowDeptCount[remaining[i].group.id] || 0;
+          if (cnt < bestCount) {
+            bestCount = cnt;
+            bestIndex = i;
+          }
+        }
+      }
+
+      if (bestIndex === -1) bestIndex = 0;
+
+      const s = remaining[bestIndex];
       seats[emptyIdx].rollNumber = s.roll;
       seats[emptyIdx].groupId = s.group.id;
       seats[emptyIdx].color = s.group.color;
       seats[emptyIdx].hex = s.group.hex;
+      remaining.splice(bestIndex, 1);
     }
   }
 
