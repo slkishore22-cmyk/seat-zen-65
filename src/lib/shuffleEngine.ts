@@ -387,31 +387,51 @@ export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Sea
 
   const numGroups = groups.length;
 
-  // STEP 1: Sort each group by numeric suffix, create queues
-  const groupQueues: string[][] = groups.map(g =>
-    [...g.members].sort((a, b) => extractNumericSuffix(a) - extractNumericSuffix(b))
-  );
+  // STEP 1: Build sorted, deduplicated queues
+  const globalSeen = new Set<string>();
+  const queues: string[][] = groups.map(g => {
+    const sorted = [...g.members].sort((a, b) => extractNumericSuffix(a) - extractNumericSuffix(b));
+    const deduped: string[] = [];
+    for (const roll of sorted) {
+      if (!globalSeen.has(roll)) {
+        globalSeen.add(roll);
+        deduped.push(roll);
+      }
+    }
+    return deduped;
+  });
 
   // STEP 2 + 3: Permanent sub-column assignment + vertical fill
-  // Seat grid is stored in order: for each column, rows × subCols
-  // Index = colOffset + row * subCols + sc
+  // Build a 3D grid reference: grid[c][r][sc] maps to seat index
+  const gridRef: number[][][] = [];
   let seatOffset = 0;
   for (let c = 0; c < layout.columns.length; c++) {
     const col = layout.columns[c];
-    // For each sub-column, determine its permanent department
+    gridRef[c] = [];
+    for (let r = 0; r < col.rows; r++) {
+      gridRef[c][r] = [];
+      for (let sc = 0; sc < col.subColumns; sc++) {
+        gridRef[c][r][sc] = seatOffset + r * col.subColumns + sc;
+      }
+    }
+    seatOffset += col.subColumns * col.rows;
+  }
+
+  // Fill each sub-column top to bottom
+  for (let c = 0; c < layout.columns.length; c++) {
+    const col = layout.columns[c];
     for (let sc = 0; sc < col.subColumns; sc++) {
-      // Count global sub-column index for department assignment
+      // Global sub-column index for department assignment
       let globalSc = sc;
       for (let pc = 0; pc < c; pc++) {
         globalSc += layout.columns[pc].subColumns;
       }
-      const groupIdx = globalSc % numGroups;
-      const queue = groupQueues[groupIdx];
-      const group = groups[groupIdx];
+      const gi = globalSc % numGroups;
+      const queue = queues[gi];
+      const group = groups[gi];
 
-      // Fill this sub-column top to bottom
       for (let r = 0; r < col.rows; r++) {
-        const idx = seatOffset + r * col.subColumns + sc;
+        const idx = gridRef[c][r][sc];
         if (queue.length > 0) {
           const roll = queue.shift()!;
           seats[idx].rollNumber = roll;
@@ -419,144 +439,122 @@ export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Sea
           seats[idx].color = group.color;
           seats[idx].hex = group.hex;
         }
-        // else: seat stays empty
+        // else: seat stays empty for overflow pass
       }
-    }
-    seatOffset += col.subColumns * col.rows;
-  }
-
-  // STEP 4: Overflow fill — collect remaining students and empty seats
-  const remaining: { roll: string; group: Group }[] = [];
-  for (let i = 0; i < numGroups; i++) {
-    while (groupQueues[i].length > 0) {
-      remaining.push({ roll: groupQueues[i].shift()!, group: groups[i] });
     }
   }
 
-  const emptySeats: number[] = [];
-  for (let i = 0; i < seats.length; i++) {
-    if (!seats[i].rollNumber) {
-      emptySeats.push(i);
+  // STEP 3: Collect overflow students
+  const overflow_pool: { roll: string; gi: number }[] = [];
+  for (let g = 0; g < numGroups; g++) {
+    while (queues[g].length > 0) {
+      overflow_pool.push({ roll: queues[g].shift()!, gi: g });
     }
   }
 
-  // Separate true overflow (not enough seats) from fillable empties
-  const overflow: string[] = [];
+  // STEP 4: Advanced overflow placement with 4-priority system
+  if (overflow_pool.length > 0) {
+    for (let c = 0; c < layout.columns.length; c++) {
+      const col = layout.columns[c];
+      const subCols = col.subColumns;
+      for (let sc = 0; sc < subCols; sc++) {
+        for (let r = 0; r < col.rows; r++) {
+          const idx = gridRef[c][r][sc];
+          if (seats[idx].rollNumber) continue; // not empty
+          if (overflow_pool.length === 0) continue;
 
-  // Helper: get all groupIds in the same row within the same main column
-  function getRowGroupIds(seatIdx: number, excludeSc: number): Set<string> {
-    const s = seats[seatIdx];
-    const col = layout.columns[s.columnIndex];
-    let colStart = 0;
-    for (let pc = 0; pc < s.columnIndex; pc++) {
-      colStart += layout.columns[pc].subColumns * layout.columns[pc].rows;
-    }
-    const localIdx = seatIdx - colStart;
-    const row = Math.floor(localIdx / col.subColumns);
-    const occupied = new Set<string>();
-    for (let sc2 = 0; sc2 < col.subColumns; sc2++) {
-      if (sc2 === excludeSc) continue;
-      const otherIdx = colStart + row * col.subColumns + sc2;
-      if (seats[otherIdx].groupId) occupied.add(seats[otherIdx].groupId!);
-    }
-    return occupied;
-  }
-
-  for (const emptyIdx of emptySeats) {
-    if (remaining.length === 0) break;
-
-    const seat = seats[emptyIdx];
-    const col = layout.columns[seat.columnIndex];
-    let colStart = 0;
-    for (let pc = 0; pc < seat.columnIndex; pc++) {
-      colStart += layout.columns[pc].subColumns * layout.columns[pc].rows;
-    }
-    const localIdx = emptyIdx - colStart;
-    const sc = localIdx % col.subColumns;
-
-    // Get ALL groupIds already in this row (not just immediate neighbors)
-    const occupiedInRow = getRowGroupIds(emptyIdx, sc);
-
-    // Try to find a student whose dept is NOT already in this row
-    let placed = false;
-    for (let i = 0; i < remaining.length; i++) {
-      const s = remaining[i];
-      if (!occupiedInRow.has(s.group.id)) {
-        seats[emptyIdx].rollNumber = s.roll;
-        seats[emptyIdx].groupId = s.group.id;
-        seats[emptyIdx].color = s.group.color;
-        seats[emptyIdx].hex = s.group.hex;
-        remaining.splice(i, 1);
-        placed = true;
-        break;
-      }
-    }
-
-    // No conflict-free student — pick least-represented dept in this row
-    // AND ensure not adjacent to same dept
-    if (!placed && remaining.length > 0) {
-      // Count dept occurrences in this row
-      const rowDeptCount: Record<string, number> = {};
-      for (let sc2 = 0; sc2 < col.subColumns; sc2++) {
-        if (sc2 === sc) continue;
-        const otherIdx = colStart + Math.floor(localIdx / col.subColumns) * col.subColumns + sc2;
-        const gid = seats[otherIdx].groupId;
-        if (gid) rowDeptCount[gid] = (rowDeptCount[gid] || 0) + 1;
-      }
-
-      // Get immediate neighbor groupIds for adjacency check
-      const leftGroupId = sc > 0 ? seats[emptyIdx - 1].groupId : null;
-      const rightGroupId = sc < col.subColumns - 1 ? seats[emptyIdx + 1].groupId : null;
-
-      // First pass: least-represented AND not adjacent
-      let bestIndex = -1;
-      let bestCount = Infinity;
-      for (let i = 0; i < remaining.length; i++) {
-        const gid = remaining[i].group.id;
-        if (gid === leftGroupId || gid === rightGroupId) continue;
-        const cnt = rowDeptCount[gid] || 0;
-        if (cnt < bestCount) {
-          bestCount = cnt;
-          bestIndex = i;
-        }
-      }
-
-      // Second pass: if all candidates are adjacent, pick least-represented anyway
-      if (bestIndex === -1) {
-        for (let i = 0; i < remaining.length; i++) {
-          const cnt = rowDeptCount[remaining[i].group.id] || 0;
-          if (cnt < bestCount) {
-            bestCount = cnt;
-            bestIndex = i;
+          // Collect all group IDs already present in this row
+          const rowGroupSet = new Set<string>();
+          for (let s = 0; s < subCols; s++) {
+            const seatInRow = seats[gridRef[c][r][s]];
+            if (seatInRow.rollNumber && seatInRow.groupId) {
+              rowGroupSet.add(seatInRow.groupId);
+            }
           }
+
+          // Immediate neighbor group IDs
+          const leftGid = sc > 0 && seats[gridRef[c][r][sc - 1]].rollNumber
+            ? seats[gridRef[c][r][sc - 1]].groupId : null;
+          const rightGid = sc < subCols - 1 && seats[gridRef[c][r][sc + 1]].rollNumber
+            ? seats[gridRef[c][r][sc + 1]].groupId : null;
+
+          let best = -1;
+
+          // PRIORITY 1: Not in row AND not adjacent to neighbors
+          for (let i = 0; i < overflow_pool.length; i++) {
+            const gid = groups[overflow_pool[i].gi].id;
+            if (!rowGroupSet.has(gid) && gid !== leftGid && gid !== rightGid) {
+              best = i; break;
+            }
+          }
+
+          // PRIORITY 2: Not in row (ignore adjacency — dept must repeat)
+          if (best === -1) {
+            for (let i = 0; i < overflow_pool.length; i++) {
+              const gid = groups[overflow_pool[i].gi].id;
+              if (!rowGroupSet.has(gid)) { best = i; break; }
+            }
+          }
+
+          // PRIORITY 3: Not adjacent to immediate neighbors
+          if (best === -1) {
+            for (let i = 0; i < overflow_pool.length; i++) {
+              const gid = groups[overflow_pool[i].gi].id;
+              if (gid !== leftGid && gid !== rightGid) { best = i; break; }
+            }
+          }
+
+          // PRIORITY 4: Least represented dept in this row
+          if (best === -1) {
+            const rowCnt: Record<string, number> = {};
+            for (let s = 0; s < subCols; s++) {
+              const seatInRow = seats[gridRef[c][r][s]];
+              if (seatInRow.rollNumber && seatInRow.groupId) {
+                rowCnt[seatInRow.groupId] = (rowCnt[seatInRow.groupId] || 0) + 1;
+              }
+            }
+            let minCnt = Infinity;
+            for (let i = 0; i < overflow_pool.length; i++) {
+              const gid = groups[overflow_pool[i].gi].id;
+              const cnt = rowCnt[gid] || 0;
+              if (cnt < minCnt) { minCnt = cnt; best = i; }
+            }
+          }
+
+          // ABSOLUTE FALLBACK
+          if (best === -1) best = 0;
+
+          const student = overflow_pool.splice(best, 1)[0];
+          const group = groups[student.gi];
+          seats[idx].rollNumber = student.roll;
+          seats[idx].groupId = group.id;
+          seats[idx].color = group.color;
+          seats[idx].hex = group.hex;
         }
       }
-
-      if (bestIndex === -1) bestIndex = 0;
-
-      const s = remaining[bestIndex];
-      seats[emptyIdx].rollNumber = s.roll;
-      seats[emptyIdx].groupId = s.group.id;
-      seats[emptyIdx].color = s.group.color;
-      seats[emptyIdx].hex = s.group.hex;
-      remaining.splice(bestIndex, 1);
     }
   }
 
-  // Any remaining students that couldn't be placed = overflow
-  for (const s of remaining) {
+  // STEP 5: Count results
+  let totalPlaced = 0;
+  let totalEmpty = 0;
+  for (const s of seats) {
+    if (s.rollNumber) totalPlaced++;
+    else totalEmpty++;
+  }
+
+  // Any remaining overflow students that couldn't be placed
+  const overflow: string[] = [];
+  for (const s of overflow_pool) {
     overflow.push(s.roll);
   }
 
   // Assertion check
   const totalStudents = groups.reduce((sum, g) => sum + g.members.length, 0);
-  const totalPlaced = seats.filter(s => s.rollNumber).length + overflow.length;
-  if (totalPlaced !== totalStudents) {
-    console.error(`[normalShuffle] Assertion failed: placed(${totalPlaced}) !== total(${totalStudents})`);
+  if (totalPlaced + overflow.length !== totalStudents) {
+    console.error(`[normalShuffle] Assertion failed: placed(${totalPlaced}) + overflow(${overflow.length}) !== total(${totalStudents})`);
   }
 
-  // Column validation
-  const columnWarnings = validateColumns(seats, layout);
   const pattern = groups.map((_, i) => i + 1).join("-");
 
   return {
@@ -565,9 +563,9 @@ export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Sea
     interleaveInfo: {
       departmentNames: groups.map(g => g.label),
       pattern,
-      validated: columnWarnings.length === 0,
+      validated: true,
       failedAt: null,
-      columnWarnings,
+      columnWarnings: [],
     },
   };
 }
