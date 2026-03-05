@@ -739,19 +739,22 @@ export function distributeStudentsAcrossRooms(
 ): RoomResult[] {
   if (rooms.length === 0 || groups.length === 0) return [];
 
-  // Sort each group's members
-  const sortedGroups = groups.map(g => ({
-    ...g,
-    members: [...g.members].sort((a, b) => extractNumericSuffix(a) - extractNumericSuffix(b)),
-  }));
-
-  // Calculate capacities
+  // STEP 1: Calculate each room's seat capacity
   const roomCapacities = rooms.map(r =>
     r.columns.reduce((sum, col) => sum + col.subColumns * col.rows, 0)
   );
-  const totalCapacity = roomCapacities.reduce((a, b) => a + b, 0);
+  const totalCapacity = roomCapacities.reduce((s, c) => s + c, 0);
 
-  // For each group, split members proportionally across rooms
+  // STEP 2: Sort each group's members by numeric suffix
+  const sortedGroups = groups.map(g => ({
+    ...g,
+    members: [...g.members].sort(
+      (a, b) => extractNumericSuffix(a) - extractNumericSuffix(b)
+    ),
+  }));
+
+  // STEP 3: For each group, distribute members across rooms
+  // using LARGEST REMAINDER METHOD to prevent any student from being dropped
   const roomGroupSlices: Map<number, Map<string, string[]>> = new Map();
   for (let ri = 0; ri < rooms.length; ri++) {
     roomGroupSlices.set(ri, new Map());
@@ -759,25 +762,58 @@ export function distributeStudentsAcrossRooms(
 
   for (const group of sortedGroups) {
     const members = group.members;
-    let offset = 0;
+    const n = members.length;
+    if (n === 0) continue;
 
-    for (let ri = 0; ri < rooms.length; ri++) {
-      let count: number;
-      if (ri === rooms.length - 1) {
-        // Last room gets remainder
-        count = members.length - offset;
-      } else {
-        count = totalCapacity > 0
-          ? Math.floor(members.length * (roomCapacities[ri] / totalCapacity))
-          : 0;
+    // Calculate exact (fractional) allocation per room
+    const exactCounts = rooms.map((_, i) =>
+      totalCapacity > 0 ? n * (roomCapacities[i] / totalCapacity) : 0
+    );
+
+    // Floor all counts first
+    const floorCounts = exactCounts.map(c => Math.floor(c));
+    let assigned = floorCounts.reduce((s, c) => s + c, 0);
+    let remainder = n - assigned;
+
+    // Distribute remainder students using largest remainder method
+    if (remainder > 0) {
+      const fractionalParts = exactCounts.map((exact, i) => ({
+        i,
+        frac: exact - floorCounts[i],
+      }));
+      fractionalParts.sort((a, b) => b.frac - a.frac);
+      for (let k = 0; k < remainder && k < fractionalParts.length; k++) {
+        floorCounts[fractionalParts[k].i]++;
       }
-      count = Math.max(0, Math.min(count, members.length - offset));
-      roomGroupSlices.get(ri)!.set(group.id, members.slice(offset, offset + count));
+    }
+
+    // VERIFY: all students accounted for
+    const totalAssigned = floorCounts.reduce((s, c) => s + c, 0);
+    if (totalAssigned !== n) {
+      const diff = n - totalAssigned;
+      const maxCapRoom = roomCapacities.indexOf(Math.max(...roomCapacities));
+      floorCounts[maxCapRoom] += diff;
+    }
+
+    // STEP 4: Slice the sorted members array for each room
+    let offset = 0;
+    for (let ri = 0; ri < rooms.length; ri++) {
+      const count = floorCounts[ri];
+      const slice = members.slice(offset, offset + count);
       offset += count;
+      roomGroupSlices.get(ri)!.set(group.id, slice);
+    }
+
+    // Safety: if any students left behind, add to last room
+    if (offset < n) {
+      const remaining = members.slice(offset);
+      const lastSlices = roomGroupSlices.get(rooms.length - 1)!;
+      const existing = lastSlices.get(group.id) || [];
+      lastSlices.set(group.id, [...existing, ...remaining]);
     }
   }
 
-  // Build per-room Group[] and run shuffle
+  // STEP 5: Build per-room Group[] and run shuffle
   const results: RoomResult[] = [];
 
   for (let ri = 0; ri < rooms.length; ri++) {
@@ -785,7 +821,6 @@ export function distributeStudentsAcrossRooms(
     const layout: RoomLayout = { columns: room.columns };
     const slices = roomGroupSlices.get(ri)!;
 
-    // Build groups for this room (exclude empty groups)
     const roomGroups: Group[] = [];
     for (const group of sortedGroups) {
       const slice = slices.get(group.id) || [];
