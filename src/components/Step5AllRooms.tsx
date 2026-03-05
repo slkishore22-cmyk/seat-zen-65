@@ -293,40 +293,131 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
   );
 };
 
+const DEPT_SHAPES = ['■', '●', '▲', '◆', '★'];
+function getDeptShape(groupIndex: number): string {
+  return DEPT_SHAPES[Math.min(groupIndex, DEPT_SHAPES.length - 1)];
+}
+
 function buildPrintHtml(results: RoomResult[], layouts: RoomLayout[], shuffleType: string): string {
   let body = "";
   for (let ri = 0; ri < results.length; ri++) {
     const result = results[ri];
     const layout = layouts[ri];
+    const isLast = ri === results.length - 1;
+
+    // SECTION 1 — Page Header
+    const header = `
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+        <div>
+          <div style="font-size:18px;font-weight:700">College Name</div>
+          <div style="font-size:14px">Exam Seating Arrangement</div>
+        </div>
+        <div style="text-align:right;font-size:12px;line-height:1.8">
+          <div>Room No: ________________</div>
+          <div>Exam Date: ________________</div>
+          <div>Exam / Subject: ____________________________</div>
+        </div>
+      </div>
+      <div style="border-bottom:1.5px solid #000;margin-bottom:8px"></div>`;
+
+    // SECTION 2 — Department Summary Bar
+    const deptSummary = result.groups.map((g, gi) =>
+      `${getDeptShape(gi)} ${g.label}: ${g.members.length}`
+    ).join('  |  ');
+    const summaryBar = `
+      <div style="font-size:11px;padding:6px;border-bottom:1px solid #ccc;background:#f5f5f5;margin-bottom:10px">
+        Total: ${result.studentCount}  |  ${deptSummary}
+      </div>`;
+
+    // Build group index map for shape lookup
+    const groupShapeMap: Record<string, string> = {};
+    result.groups.forEach((g, gi) => { groupShapeMap[g.id] = getDeptShape(gi); });
+
+    // SECTION 3 — Seat Table
     let seatIdx = 0;
     const colHtmls = layout.columns.map((col, ci) => {
       let rows = "";
       for (let r = 0; r < col.rows; r++) {
-        let cells = "";
+        let cells = `<td style="padding:4px 2px;font-size:10px;color:#888;text-align:right;border:none;width:20px">R${r + 1}</td>`;
         for (let s = 0; s < col.subColumns; s++) {
           const seat = result.seats[seatIdx];
-          const bg = seat?.hex ? `${seat.hex}20` : "transparent";
-          const borderL = seat?.hex || "#ddd";
-          cells += `<td style="padding:6px 10px;border:1px solid #eee;border-left:3px solid ${borderL};background:${bg};font-size:12px;font-weight:600;text-align:center">${seat?.rollNumber || "—"}</td>`;
+          const shape = seat?.groupId ? (groupShapeMap[seat.groupId] || '★') : '';
+          const roll = seat?.rollNumber || '—';
+          cells += `<td style="padding:2px;border:none"><div style="display:flex;align-items:center;gap:2px">` +
+            `<div style="width:70px;height:36px;border:1px solid #000;position:relative;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700">` +
+            `${roll}` +
+            `<span style="position:absolute;top:1px;right:3px;font-size:8px;font-weight:700">${shape}</span>` +
+            `</div>` +
+            `<div style="width:10px;height:10px;border:1px solid #000;flex-shrink:0"></div>` +
+            `</div></td>`;
           seatIdx++;
         }
         rows += `<tr>${cells}</tr>`;
       }
-      return `<div style="flex:1"><h4 style="text-align:center;font-size:12px;color:#888;margin-bottom:8px">Column ${ci + 1}</h4><table style="border-collapse:collapse;width:100%">${rows}</table></div>`;
+      return `<div style="flex:1${ci < layout.columns.length - 1 ? ';border-right:1px solid #000;padding-right:12px;margin-right:12px' : ''}">` +
+        `<div style="text-align:center;font-size:10px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;font-weight:600">Column ${ci + 1}</div>` +
+        `<table style="border-collapse:collapse;width:100%">${rows}</table></div>`;
     });
-    const legend = result.groups.map(g => `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:16px"><span style="width:10px;height:10px;border-radius:50%;background:${g.hex}"></span>${g.label} (${g.members.length})</span>`).join("");
-    body += `<div style="page-break-after:always;margin-bottom:40px">
-      <h2 style="font-size:18px;font-weight:700;margin-bottom:4px">${result.roomName}</h2>
-      <p style="font-size:13px;color:#888;margin-bottom:4px">${shuffleType === "university" ? "University Shuffle" : "Normal Shuffle"} · ${new Date().toLocaleDateString()}</p>
-      <p style="font-size:13px;color:#888;margin-bottom:16px">${result.studentCount} students</p>
-      <div style="margin-bottom:12px">${legend}</div>
-      <div style="display:flex;gap:0">${colHtmls.join('<div style="width:24px"></div>')}</div>
+    const seatGrid = `<div style="display:flex;gap:0;margin-bottom:14px">${colHtmls.join('')}</div>`;
+
+    // SECTION 4 — Attendance Summary Table
+    let attRows = result.groups.map((g, gi) =>
+      `<tr><td style="border:1px solid #000;padding:6px 10px;font-size:11px">${getDeptShape(gi)} ${g.label}</td>` +
+      `<td style="border:1px solid #000;padding:6px 10px;font-size:11px;text-align:center">${g.members.length}</td>` +
+      `<td style="border:1px solid #000;padding:6px 10px;min-width:80px"></td>` +
+      `<td style="border:1px solid #000;padding:6px 10px;min-width:80px"></td></tr>`
+    ).join('');
+    attRows += `<tr style="font-weight:700"><td style="border:1px solid #000;padding:6px 10px;font-size:11px">TOTAL</td>` +
+      `<td style="border:1px solid #000;padding:6px 10px;font-size:11px;text-align:center">${result.studentCount}</td>` +
+      `<td style="border:1px solid #000;padding:6px 10px"></td>` +
+      `<td style="border:1px solid #000;padding:6px 10px"></td></tr>`;
+    const attTable = `
+      <table style="border-collapse:collapse;margin-bottom:14px;width:auto">
+        <tr style="font-weight:700;background:#f5f5f5">
+          <td style="border:1px solid #000;padding:6px 10px;font-size:11px">Department</td>
+          <td style="border:1px solid #000;padding:6px 10px;font-size:11px">Total Students</td>
+          <td style="border:1px solid #000;padding:6px 10px;font-size:11px">Present</td>
+          <td style="border:1px solid #000;padding:6px 10px;font-size:11px">Absent</td>
+        </tr>
+        ${attRows}
+      </table>`;
+
+    // SECTION 5 — Invigilator Sign-off
+    const signOff = `
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-top:10px">
+        <div style="font-size:11px;line-height:2.2">
+          <div>Invigilator Name: _______________________________</div>
+          <div>Date: _______________</div>
+          <div>Time In: ____________&nbsp;&nbsp;&nbsp;Time Out: ____________</div>
+        </div>
+        <div style="text-align:right;font-size:11px">
+          <div style="margin-bottom:4px">Signature:</div>
+          <div style="width:150px;height:60px;border:1px solid #000"></div>
+        </div>
+      </div>
+      <div style="border-top:1px solid #000;margin-top:10px;padding-top:6px;font-size:11px;line-height:2">
+        <div>Remarks: _____________________________________________</div>
+        <div>__________________________________________________</div>
+      </div>`;
+
+    body += `<div class="${isLast ? '' : 'page-break'}" style="margin-bottom:0">
+      ${header}${summaryBar}${seatGrid}${attTable}${signOff}
     </div>`;
   }
-  return `<!DOCTYPE html><html><head><title>Exam Rooms</title><style>body{font-family:-apple-system,sans-serif;padding:40px;color:#1d1d1f}@media print{button{display:none!important}}</style></head><body>
-    <h1 style="font-size:20px;font-weight:700;margin-bottom:20px">Exam Room Arrangements</h1>
+
+  return `<!DOCTYPE html><html><head><title>Exam Seating Arrangement</title>
+<style>
+  body { font-family: Arial, sans-serif; padding: 0; margin: 15mm; color: #000; }
+  @media print {
+    * { color: #000 !important; background: #fff !important; }
+    .no-print { display: none !important; }
+    .page-break { page-break-after: always; }
+    body { margin: 0; padding: 0; }
+    @page { size: A4 portrait; margin: 15mm; }
+  }
+</style></head><body>
     ${body}
-    <button onclick="window.print()" style="padding:8px 24px;background:#000;color:#fff;border:none;border-radius:980px;cursor:pointer;font-size:14px">Print</button>
+    <button class="no-print" onclick="window.print()" style="margin-top:20px;padding:8px 24px;background:#000;color:#fff;border:none;border-radius:980px;cursor:pointer;font-size:14px">Print</button>
   </body></html>`;
 }
 
