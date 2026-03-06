@@ -100,6 +100,28 @@ const Step2RoomConfig = ({ onNext, onBack }: Props) => {
       </div>
 
       <div className="max-w-3xl mx-auto space-y-4">
+        {/* AI Assist */}
+        <div className="glass-card p-4 flex items-center gap-3">
+          <Sparkles size={16} className="text-muted-foreground shrink-0" />
+          <input
+            type="text"
+            placeholder='Try "3 columns, 2 seats each, 10 rows" or "classroom for 60 students"'
+            value={aiPrompt}
+            onChange={e => setAiPrompt(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && handleAiConfigure()}
+            className="input-apple py-2 text-sm flex-1 min-w-0"
+            disabled={aiLoading}
+          />
+          <button
+            className="btn-primary text-sm shrink-0 flex items-center gap-1.5"
+            onClick={handleAiConfigure}
+            disabled={!aiPrompt.trim() || aiLoading}
+          >
+            {aiLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+            {aiLoading ? "Configuring…" : "AI Configure"}
+          </button>
+        </div>
+
         {rooms.map((room, ri) => {
           const isExpanded = expandedRoom === ri;
           const status = getRoomStatus(ri);
