@@ -14,6 +14,34 @@ const Step2RoomConfig = ({ onNext, onBack }: Props) => {
   const { session, updateRoom } = useExamSession();
   const rooms = session.rooms;
   const [expandedRoom, setExpandedRoom] = useState(0);
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+
+  const handleAiConfigure = async () => {
+    if (!aiPrompt.trim() || aiLoading) return;
+    setAiLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("ai-room-config", {
+        body: { prompt: aiPrompt.trim(), roomCount: rooms.length },
+      });
+      if (error) throw error;
+      if (data.error) throw new Error(data.error);
+
+      const aiRooms = data.rooms as { name?: string; columns: ColumnConfig[] }[];
+      for (let i = 0; i < Math.min(aiRooms.length, rooms.length); i++) {
+        updateRoom(i, {
+          columns: aiRooms[i].columns,
+          ...(aiRooms[i].name ? { name: aiRooms[i].name } : {}),
+        });
+      }
+      toast.success(data.explanation || "Rooms configured by AI!");
+      setAiPrompt("");
+    } catch (e: any) {
+      toast.error(e.message || "AI configuration failed");
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
   const getRoomStatus = (roomIdx: number): "empty" | "partial" | "complete" => {
     const room = rooms[roomIdx];
