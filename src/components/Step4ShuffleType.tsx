@@ -218,7 +218,8 @@ const Step4ShuffleType = ({ onGenerate, onBack }: Props) => {
         <button className="btn-secondary" onClick={onBack} disabled={generating}>
           <ChevronLeft size={16} strokeWidth={1.5} className="mr-1" /> Back
         </button>
-        <button className          className="btn-primary flex items-center gap-2"
+        <button
+          className="btn-primary flex items-center gap-2"
           onClick={handleGenerate}
           disabled={generating}
         >
