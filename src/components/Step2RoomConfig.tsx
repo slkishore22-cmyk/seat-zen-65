@@ -1,9 +1,7 @@
 import { useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Sparkles, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp } from "lucide-react";
 import { useExamSession } from "@/hooks/useExamSession";
 import { ColumnConfig, getTotalCapacity } from "@/lib/shuffleEngine";
-import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
 
 interface Props {
   onNext: () => void;
