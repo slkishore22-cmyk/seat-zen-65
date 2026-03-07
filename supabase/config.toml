@@ -2,3 +2,6 @@ project_id = "qrqozxcrsadubakamwhe"
 
 [functions.ai-room-config]
 verify_jwt = false
+
+[functions.ai-fix-conflicts]
+verify_jwt = false

@@ -1,9 +1,7 @@
 import { useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Sparkles, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp } from "lucide-react";
 import { useExamSession } from "@/hooks/useExamSession";
 import { ColumnConfig, getTotalCapacity } from "@/lib/shuffleEngine";
-import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
 
 interface Props {
   onNext: () => void;
@@ -14,34 +12,6 @@ const Step2RoomConfig = ({ onNext, onBack }: Props) => {
   const { session, updateRoom } = useExamSession();
   const rooms = session.rooms;
   const [expandedRoom, setExpandedRoom] = useState(0);
-  const [aiPrompt, setAiPrompt] = useState("");
-  const [aiLoading, setAiLoading] = useState(false);
-
-  const handleAiConfigure = async () => {
-    if (!aiPrompt.trim() || aiLoading) return;
-    setAiLoading(true);
-    try {
-      const { data, error } = await supabase.functions.invoke("ai-room-config", {
-        body: { prompt: aiPrompt.trim(), roomCount: rooms.length },
-      });
-      if (error) throw error;
-      if (data.error) throw new Error(data.error);
-
-      const aiRooms = data.rooms as { name?: string; columns: ColumnConfig[] }[];
-      for (let i = 0; i < Math.min(aiRooms.length, rooms.length); i++) {
-        updateRoom(i, {
-          columns: aiRooms[i].columns,
-          ...(aiRooms[i].name ? { name: aiRooms[i].name } : {}),
-        });
-      }
-      toast.success(data.explanation || "Rooms configured by AI!");
-      setAiPrompt("");
-    } catch (e: any) {
-      toast.error(e.message || "AI configuration failed");
-    } finally {
-      setAiLoading(false);
-    }
-  };
 
   const getRoomStatus = (roomIdx: number): "empty" | "partial" | "complete" => {
     const room = rooms[roomIdx];
@@ -100,28 +70,6 @@ const Step2RoomConfig = ({ onNext, onBack }: Props) => {
       </div>
 
       <div className="max-w-3xl mx-auto space-y-4">
-        {/* AI Assist */}
-        <div className="glass-card p-4 flex items-center gap-3">
-          <Sparkles size={16} className="text-muted-foreground shrink-0" />
-          <input
-            type="text"
-            placeholder='Try "3 columns, 2 seats each, 10 rows" or "classroom for 60 students"'
-            value={aiPrompt}
-            onChange={e => setAiPrompt(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && handleAiConfigure()}
-            className="input-apple py-2 text-sm flex-1 min-w-0"
-            disabled={aiLoading}
-          />
-          <button
-            className="btn-primary text-sm shrink-0 flex items-center gap-1.5"
-            onClick={handleAiConfigure}
-            disabled={!aiPrompt.trim() || aiLoading}
-          >
-            {aiLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-            {aiLoading ? "Configuring…" : "AI Configure"}
-          </button>
-        </div>
-
         {rooms.map((room, ri) => {
           const isExpanded = expandedRoom === ri;
           const status = getRoomStatus(ri);

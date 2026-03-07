@@ -1,6 +1,9 @@
+import { useState } from "react";
 import { useExamSession } from "@/hooks/useExamSession";
-import { distributeStudentsAcrossRooms } from "@/lib/shuffleEngine";
-import { ChevronLeft, Shuffle, Shield } from "lucide-react";
+import { distributeStudentsAcrossRooms, getConflictIndices, Seat, RoomResult } from "@/lib/shuffleEngine";
+import { ChevronLeft, Shuffle, Shield, Loader2, Sparkles } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 import type { ShuffleType } from "@/hooks/useExamSession";
 
 interface Props {
@@ -33,14 +36,137 @@ const MiniPreview = ({ type, groups }: { type: ShuffleType; groups: { hex: strin
   );
 };
 
+/** Find horizontal conflicts for normal shuffle */
+function findNormalConflicts(seats: Seat[], layout: { columns: { subColumns: number; rows: number }[] }): number[] {
+  const conflicts: number[] = [];
+  let seatOffset = 0;
+  for (let c = 0; c < layout.columns.length; c++) {
+    const col = layout.columns[c];
+    for (let r = 0; r < col.rows; r++) {
+      for (let sc = 0; sc < col.subColumns - 1; sc++) {
+        const idx = seatOffset + r * col.subColumns + sc;
+        const nextIdx = seatOffset + r * col.subColumns + sc + 1;
+        if (seats[idx].groupId && seats[nextIdx].groupId && seats[idx].groupId === seats[nextIdx].groupId) {
+          if (!conflicts.includes(idx)) conflicts.push(idx);
+          if (!conflicts.includes(nextIdx)) conflicts.push(nextIdx);
+        }
+      }
+    }
+    seatOffset += col.subColumns * col.rows;
+  }
+  return conflicts;
+}
+
+/** Find all adjacency conflicts for university shuffle (horizontal + vertical) */
+function findUniversityConflicts(seats: Seat[], layout: { columns: { subColumns: number; rows: number }[] }): number[] {
+  const conflictSet = getConflictIndices(seats, layout);
+  return Array.from(conflictSet);
+}
+
 const Step4ShuffleType = ({ onGenerate, onBack }: Props) => {
   const { session, setShuffleType, setRoomResults } = useExamSession();
   const { allGroups, shuffleType, rooms } = session;
+  const [generating, setGenerating] = useState(false);
 
-  const handleGenerate = () => {
-    const results = distributeStudentsAcrossRooms(allGroups, rooms, shuffleType);
-    setRoomResults(results);
-    onGenerate();
+  const handleGenerate = async () => {
+    setGenerating(true);
+    try {
+      // Step 1: Rule-based shuffle
+      const results = distributeStudentsAcrossRooms(allGroups, rooms, shuffleType);
+
+      // Step 2: AI post-processing to fix remaining conflicts
+      const improvedResults = await aiPostProcess(results, shuffleType);
+
+      setRoomResults(improvedResults);
+      onGenerate();
+    } catch (e: any) {
+      console.error("Generation error:", e);
+      toast.error("Generation failed. Using rule-based results.");
+      // Fallback to pure rule-based
+      const results = distributeStudentsAcrossRooms(allGroups, rooms, shuffleType);
+      setRoomResults(results);
+      onGenerate();
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const aiPostProcess = async (results: RoomResult[], type: ShuffleType): Promise<RoomResult[]> => {
+    const improved: RoomResult[] = [];
+
+    for (const room of results) {
+      const layout = { columns: rooms[room.roomIndex].columns };
+
+      // Find conflicts based on shuffle type
+      const conflicts = type === "normal"
+        ? findNormalConflicts(room.seats, layout)
+        : findUniversityConflicts(room.seats, layout);
+
+      if (conflicts.length === 0) {
+        improved.push(room);
+        continue;
+      }
+
+      try {
+        const { data, error } = await supabase.functions.invoke("ai-fix-conflicts", {
+          body: {
+            grid: room.seats,
+            layout,
+            shuffleType: type,
+            conflicts,
+          },
+        });
+
+        if (error) throw error;
+        if (data?.error) throw new Error(data.error);
+
+        if (data?.swaps && data.swaps.length > 0) {
+          const newSeats = [...room.seats];
+          for (const swap of data.swaps) {
+            const { fromIndex, toIndex } = swap;
+            if (fromIndex >= 0 && fromIndex < newSeats.length && toIndex >= 0 && toIndex < newSeats.length) {
+              // Swap roll numbers and group info
+              const tempRoll = newSeats[fromIndex].rollNumber;
+              const tempGroupId = newSeats[fromIndex].groupId;
+              const tempColor = newSeats[fromIndex].color;
+              const tempHex = newSeats[fromIndex].hex;
+
+              newSeats[fromIndex].rollNumber = newSeats[toIndex].rollNumber;
+              newSeats[fromIndex].groupId = newSeats[toIndex].groupId;
+              newSeats[fromIndex].color = newSeats[toIndex].color;
+              newSeats[fromIndex].hex = newSeats[toIndex].hex;
+
+              newSeats[toIndex].rollNumber = tempRoll;
+              newSeats[toIndex].groupId = tempGroupId;
+              newSeats[toIndex].color = tempColor;
+              newSeats[toIndex].hex = tempHex;
+            }
+          }
+
+          // Recount conflicts after AI fixes
+          const newConflicts = type === "normal"
+            ? findNormalConflicts(newSeats, layout)
+            : findUniversityConflicts(newSeats, layout);
+
+          improved.push({
+            ...room,
+            seats: newSeats,
+            conflictCount: newConflicts.length,
+          });
+
+          if (data.explanation) {
+            toast.success(`Room ${room.roomName}: ${data.explanation}`);
+          }
+        } else {
+          improved.push(room);
+        }
+      } catch (e) {
+        console.warn(`AI post-processing failed for room ${room.roomName}, using rule-based result`, e);
+        improved.push(room);
+      }
+    }
+
+    return improved;
   };
 
   const options: { type: ShuffleType; label: string; desc: string; icon: React.ReactNode }[] = [
@@ -70,6 +196,7 @@ const Step4ShuffleType = ({ onGenerate, onBack }: Props) => {
           <button
             key={opt.type}
             onClick={() => setShuffleType(opt.type)}
+            disabled={generating}
             className={`glass-card p-6 text-left transition-all duration-300 ${
               shuffleType === opt.type
                 ? "border-2 border-foreground scale-[1.02]"
@@ -88,11 +215,23 @@ const Step4ShuffleType = ({ onGenerate, onBack }: Props) => {
       </div>
 
       <div className="flex justify-between mt-10 max-w-2xl mx-auto">
-        <button className="btn-secondary" onClick={onBack}>
+        <button className="btn-secondary" onClick={onBack} disabled={generating}>
           <ChevronLeft size={16} strokeWidth={1.5} className="mr-1" /> Back
         </button>
-        <button className="btn-primary" onClick={handleGenerate}>
-          Generate All Rooms →
+        <button
+          className="btn-primary flex items-center gap-2"
+          onClick={handleGenerate}
+          disabled={generating}
+        >
+          {generating ? (
+            <>
+              <Loader2 size={16} className="animate-spin" />
+              <Sparkles size={14} />
+              AI Optimizing…
+            </>
+          ) : (
+            <>Generate All Rooms →</>
+          )}
         </button>
       </div>
     </div>
