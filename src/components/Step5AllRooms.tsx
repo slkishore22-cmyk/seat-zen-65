@@ -5,6 +5,7 @@ import SeatCard from "@/components/SeatCard";
 import ColorLegend from "@/components/ColorLegend";
 import { Shuffle, Save, Plus, Printer, Pencil, Undo2 } from "lucide-react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 interface Props {
   onNewExam: () => void;
@@ -35,8 +36,8 @@ function seatFlatIndex(layout: RoomLayout, ci: number, ri: number, si: number): 
 }
 
 const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
-  const { session, setRoomResults, setActiveRoomTab, addSession } = useExamSession();
-  const { roomResults, activeRoomTab, shuffleType, allGroups, rooms } = session;
+  const { session, setRoomResults, setActiveRoomTab, addSession, setCurrentSessionId } = useExamSession();
+  const { roomResults, activeRoomTab, shuffleType, allGroups, rooms, currentSessionId } = session;
   const [animKey, setAnimKey] = useState(0);
   const [showSave, setShowSave] = useState(false);
   const [saveName, setSaveName] = useState("");
@@ -107,7 +108,7 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
     setRoomResults(newResults);
   }, [history, roomResults, activeRoomTab, setRoomResults]);
 
-  const handleReshuffleThis = useCallback(() => {
+  const handleReshuffleThis = useCallback(async () => {
     if (!activeResult || !activeLayout) return;
     const shuffledGroups = activeResult.groups.map(g => ({ ...g, members: seededShuffle(g.members) }));
     let newResult: Partial<RoomResult>;
@@ -123,7 +124,11 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
     setRoomResults(newResults);
     setAnimKey(k => k + 1);
     setHistory([]);
-  }, [activeResult, activeLayout, roomResults, activeRoomTab, shuffleType, setRoomResults]);
+    // Auto-save if session exists
+    if (currentSessionId) {
+      await supabase.from('exam_sessions').update({ rooms: newResults } as any).eq('id', currentSessionId);
+    }
+  }, [activeResult, activeLayout, roomResults, activeRoomTab, shuffleType, setRoomResults, currentSessionId]);
 
   const handleReshuffleAll = useCallback(async () => {
     const results = await distributeStudentsAcrossRooms(
@@ -133,15 +138,38 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
     setRoomResults(results);
     setAnimKey(k => k + 1);
     setHistory([]);
-  }, [allGroups, rooms, shuffleType, setRoomResults]);
+    // Auto-save if session exists
+    if (currentSessionId) {
+      await supabase.from('exam_sessions').update({ rooms: results } as any).eq('id', currentSessionId);
+    }
+  }, [allGroups, rooms, shuffleType, setRoomResults, currentSessionId]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!saveName.trim()) return;
-    const saved: SavedSession = { id: crypto.randomUUID(), name: saveName.trim(), createdAt: new Date().toISOString(), shuffleType, totalStudents, roomResults };
-    addSession(saved);
-    setShowSave(false);
-    setSaveName("");
-    toast.success("All rooms saved!", { duration: 2000 });
+    const totalStudentCount = roomResults.reduce((sum, r) => sum + r.studentCount, 0);
+    const payload = {
+      exam_name: saveName.trim(),
+      shuffle_type: shuffleType,
+      rooms: roomResults as any,
+      groups: allGroups as any,
+      total_students: totalStudentCount,
+    };
+
+    const { data, error } = await supabase
+      .from('exam_sessions')
+      .insert(payload)
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      toast.error("Save failed. Please try again.");
+      console.error("Save error:", error);
+    } else if (data) {
+      setCurrentSessionId(data.id);
+      setShowSave(false);
+      setSaveName("");
+      toast.success("All rooms saved successfully.", { duration: 2000 });
+    }
   };
 
   const handlePrintThis = useCallback(() => {

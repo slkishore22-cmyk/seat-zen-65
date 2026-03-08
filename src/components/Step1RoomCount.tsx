@@ -1,17 +1,35 @@
-import { ChevronRight, DoorOpen } from "lucide-react";
+import { useState, useEffect } from "react";
+import { ChevronRight, DoorOpen, Clock } from "lucide-react";
 import { useExamSession } from "@/hooks/useExamSession";
+import { supabase } from "@/integrations/supabase/client";
 
 interface Props {
   onNext: () => void;
+  onLoadSession?: (session: any) => void;
 }
 
-const Step1RoomCount = ({ onNext }: Props) => {
+const Step1RoomCount = ({ onNext, onLoadSession }: Props) => {
   const { session, setTotalRooms } = useExamSession();
   const count = session.totalRooms;
+  const [showPrevious, setShowPrevious] = useState(false);
+  const [savedSessions, setSavedSessions] = useState<any[]>([]);
+  const [loadingSessions, setLoadingSessions] = useState(false);
 
   const handleChange = (val: number) => {
     const clamped = Math.max(1, Math.min(20, val));
     setTotalRooms(clamped);
+  };
+
+  const loadSavedSessions = async () => {
+    setLoadingSessions(true);
+    const { data } = await supabase
+      .from('exam_sessions')
+      .select('id, exam_name, created_at, total_students, shuffle_type, rooms, groups')
+      .order('created_at', { ascending: false })
+      .limit(20);
+    setSavedSessions(data || []);
+    setLoadingSessions(false);
+    setShowPrevious(true);
   };
 
   const isValid = count >= 1 && count <= 20;
@@ -50,11 +68,46 @@ const Step1RoomCount = ({ onNext }: Props) => {
         </div>
       )}
 
-      <div className="flex justify-center">
+      <div className="flex justify-center gap-3">
         <button className="btn-primary" disabled={!isValid} onClick={onNext}>
           Configure Rooms <ChevronRight size={16} strokeWidth={1.5} className="ml-1" />
         </button>
+        {onLoadSession && (
+          <button className="btn-secondary text-sm" onClick={loadSavedSessions}>
+            <Clock size={14} strokeWidth={1.5} className="mr-1.5" /> Load Previous
+          </button>
+        )}
       </div>
+
+      {/* Saved sessions modal */}
+      {showPrevious && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowPrevious(false)}>
+          <div className="glass-card p-6 max-w-md w-full mx-4 max-h-[70vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <h2 className="text-lg font-bold mb-4">Previous Sessions</h2>
+            {loadingSessions ? (
+              <p className="text-sm text-muted-foreground text-center py-8">Loading...</p>
+            ) : savedSessions.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">No saved sessions found.</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {savedSessions.map(s => (
+                  <button
+                    key={s.id}
+                    className="glass-card p-4 text-left hover:scale-[1.01] transition-transform"
+                    onClick={() => { onLoadSession!(s); setShowPrevious(false); }}
+                  >
+                    <p className="text-sm font-semibold">{s.exam_name || "Untitled Exam"}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {new Date(s.created_at).toLocaleDateString()} · {s.total_students} students · {s.shuffle_type}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            )}
+            <button className="btn-secondary text-sm w-full mt-4" onClick={() => setShowPrevious(false)}>Close</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

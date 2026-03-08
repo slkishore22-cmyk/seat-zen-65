@@ -14,7 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      exam_sessions: {
+        Row: {
+          created_at: string | null
+          exam_name: string | null
+          groups: Json | null
+          id: string
+          rooms: Json | null
+          shuffle_type: string | null
+          total_students: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          exam_name?: string | null
+          groups?: Json | null
+          id?: string
+          rooms?: Json | null
+          shuffle_type?: string | null
+          total_students?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          exam_name?: string | null
+          groups?: Json | null
+          id?: string
+          rooms?: Json | null
+          shuffle_type?: string | null
+          total_students?: number | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
