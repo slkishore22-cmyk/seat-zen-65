@@ -40,7 +40,6 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
   const { roomResults, activeRoomTab, shuffleType, allGroups, rooms, currentSessionId } = session;
   const [animKey, setAnimKey] = useState(0);
   const [actionBarHeight, setActionBarHeight] = useState(96);
-  const [actionBarHeight, setActionBarHeight] = useState(96);
   const barRef = useRef<HTMLDivElement>(null);
 
   const [editMode, setEditMode] = useState(false);
