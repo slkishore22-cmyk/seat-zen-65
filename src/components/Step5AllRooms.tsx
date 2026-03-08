@@ -108,7 +108,7 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
     setRoomResults(newResults);
   }, [history, roomResults, activeRoomTab, setRoomResults]);
 
-  const handleReshuffleThis = useCallback(() => {
+  const handleReshuffleThis = useCallback(async () => {
     if (!activeResult || !activeLayout) return;
     const shuffledGroups = activeResult.groups.map(g => ({ ...g, members: seededShuffle(g.members) }));
     let newResult: Partial<RoomResult>;
@@ -124,7 +124,11 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
     setRoomResults(newResults);
     setAnimKey(k => k + 1);
     setHistory([]);
-  }, [activeResult, activeLayout, roomResults, activeRoomTab, shuffleType, setRoomResults]);
+    // Auto-save if session exists
+    if (currentSessionId) {
+      await supabase.from('exam_sessions').update({ rooms: newResults } as any).eq('id', currentSessionId);
+    }
+  }, [activeResult, activeLayout, roomResults, activeRoomTab, shuffleType, setRoomResults, currentSessionId]);
 
   const handleReshuffleAll = useCallback(async () => {
     const results = await distributeStudentsAcrossRooms(
@@ -134,7 +138,11 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
     setRoomResults(results);
     setAnimKey(k => k + 1);
     setHistory([]);
-  }, [allGroups, rooms, shuffleType, setRoomResults]);
+    // Auto-save if session exists
+    if (currentSessionId) {
+      await supabase.from('exam_sessions').update({ rooms: results } as any).eq('id', currentSessionId);
+    }
+  }, [allGroups, rooms, shuffleType, setRoomResults, currentSessionId]);
 
   const handleSave = () => {
     if (!saveName.trim()) return;
