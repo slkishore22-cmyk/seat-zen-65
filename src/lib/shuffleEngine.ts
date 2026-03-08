@@ -1,7 +1,8 @@
 // ==========================================
 // EXAM SEATING SHUFFLE ENGINE
-// Pure utility — no React, no side effects
 // ==========================================
+
+import { supabase } from "@/integrations/supabase/client";
 
 export const GROUP_COLORS = [
   { name: "Red", hex: "#FF3B30", hsl: "4 100% 59%" },
