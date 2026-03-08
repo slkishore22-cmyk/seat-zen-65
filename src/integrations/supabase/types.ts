@@ -17,43 +17,29 @@ export type Database = {
       app_users: {
         Row: {
           created_at: string | null
-          created_by: string | null
-          full_name: string | null
+          full_name: string
           id: string
           is_active: boolean | null
           password_hash: string
-          role: string | null
           username: string
         }
         Insert: {
           created_at?: string | null
-          created_by?: string | null
-          full_name?: string | null
+          full_name: string
           id?: string
           is_active?: boolean | null
           password_hash: string
-          role?: string | null
           username: string
         }
         Update: {
           created_at?: string | null
-          created_by?: string | null
-          full_name?: string | null
+          full_name?: string
           id?: string
           is_active?: boolean | null
           password_hash?: string
-          role?: string | null
           username?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "app_users_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "master_admin"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       exam_sessions: {
         Row: {
