@@ -7,7 +7,7 @@ interface Props {
   shuffleType: ShuffleType;
   setShuffleType: (t: ShuffleType) => void;
   layout: RoomLayout;
-  onGenerate: (seats: Seat[], overflow: string[], conflictCount: number) => void;
+  onGenerate: (seats: Seat[], conflictCount: number) => void;
   onBack: () => void;
 }
 
