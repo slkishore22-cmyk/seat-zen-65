@@ -142,6 +142,7 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
     // Auto-save if session exists
     if (currentSessionId) {
       await supabase.from('exam_sessions').update({ rooms: results } as any).eq('id', currentSessionId);
+      toast.success("Auto saved.", { duration: 1500 });
     }
   }, [allGroups, rooms, shuffleType, setRoomResults, currentSessionId]);
 
