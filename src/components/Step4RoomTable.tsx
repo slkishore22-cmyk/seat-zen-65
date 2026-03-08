@@ -11,10 +11,8 @@ interface Props {
   groups: Group[];
   seatMap: Seat[];
   setSeatMap: (s: Seat[]) => void;
-  overflow: string[];
   conflictCount: number;
   setConflictCount: (n: number) => void;
-  setOverflow: (o: string[]) => void;
   shuffleType: ShuffleType;
   onNewRoom: () => void;
   onSave: (name: string) => void;
