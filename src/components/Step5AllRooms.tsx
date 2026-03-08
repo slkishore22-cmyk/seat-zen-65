@@ -295,6 +295,13 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
       </div>
 
 
+      {readOnly && (
+        <div className="flex items-center justify-center gap-3 mt-6">
+          <button className="btn-secondary text-sm shrink-0" onClick={handlePrintThis}><Printer size={14} strokeWidth={1.5} className="mr-1.5" /> Print This</button>
+          <button className="btn-secondary text-sm shrink-0" onClick={handlePrintAll}><Printer size={14} strokeWidth={1.5} className="mr-1.5" /> Print All</button>
+        </div>
+      )}
+
       {!readOnly && (
         <>
           <div aria-hidden="true" style={{ height: actionBarHeight + 20 }} />
