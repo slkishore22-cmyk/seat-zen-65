@@ -64,7 +64,10 @@ const MasterAdminPage = () => {
       const { data, error } = await supabase.functions.invoke("auth-admin", {
         body: { action: "master_login", username: loginUser.trim(), password: loginPw },
       });
-      if (error) throw error;
+      if (error) {
+        toast.error("Invalid credentials");
+        return;
+      }
       if (data?.error) { toast.error(data.error); return; }
       setAdminSession(data);
       toast.success("Master admin logged in");
