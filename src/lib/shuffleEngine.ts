@@ -819,11 +819,11 @@ export interface RoomResult {
   interleaveInfo?: InterleaveInfo;
 }
 
-export function distributeStudentsAcrossRooms(
+export async function distributeStudentsAcrossRooms(
   groups: Group[],
   rooms: RoomConfig[],
   shuffleType: "normal" | "university"
-): RoomResult[] {
+): Promise<RoomResult[]> {
   if (rooms.length === 0 || groups.length === 0) return [];
 
   // STEP 1: Calculate each room's seat capacity
