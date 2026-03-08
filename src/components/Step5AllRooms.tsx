@@ -147,14 +147,25 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
   }, [allGroups, rooms, shuffleType, setRoomResults, currentSessionId]);
 
   const handleSave = async () => {
-    if (!saveName.trim()) return;
+    const userSession = (() => {
+      try { return JSON.parse(localStorage.getItem("user_session") || ""); } catch { return null; }
+    })();
+    if (!userSession) {
+      toast.error("You must be logged in to save.");
+      return;
+    }
+
     const totalStudentCount = roomResults.reduce((sum, r) => sum + r.studentCount, 0);
+    const today = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+    const autoName = `Exam ${today} ${userSession.full_name || ""}`.trim();
+
     const payload = {
-      exam_name: saveName.trim(),
+      exam_name: autoName,
       shuffle_type: shuffleType,
       rooms: roomResults as any,
       groups: allGroups as any,
       total_students: totalStudentCount,
+      user_id: userSession.id,
     };
 
     const { data, error } = await supabase
@@ -168,9 +179,7 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
       console.error("Save error:", error);
     } else if (data) {
       setCurrentSessionId(data.id);
-      setShowSave(false);
-      setSaveName("");
-      toast.success("All rooms saved successfully.", { duration: 2000 });
+      toast.success("Saved successfully.", { duration: 2000 });
     }
   };
 
