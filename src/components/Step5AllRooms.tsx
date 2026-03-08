@@ -314,15 +314,7 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
               )}
               <button className="btn-secondary text-sm shrink-0" onClick={handleReshuffleThis}><Shuffle size={14} strokeWidth={1.5} className="mr-1.5" /> Re-shuffle This</button>
               <button className="btn-secondary text-sm shrink-0" onClick={handleReshuffleAll}><Shuffle size={14} strokeWidth={1.5} className="mr-1.5" /> Re-shuffle All</button>
-              {showSave ? (
-                <div className="flex items-center gap-2 shrink-0">
-                  <input type="text" placeholder="Exam name..." maxLength={60} value={saveName} onChange={e => setSaveName(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSave()} className="input-apple py-2 text-sm w-44" autoFocus />
-                  <button className="btn-primary text-sm shrink-0" onClick={handleSave} disabled={!saveName.trim()}>Save</button>
-                  <button className="btn-secondary text-sm shrink-0" onClick={() => setShowSave(false)}>Cancel</button>
-                </div>
-              ) : (
-                <button className="btn-secondary text-sm shrink-0" onClick={() => setShowSave(true)}><Save size={14} strokeWidth={1.5} className="mr-1.5" /> Save All</button>
-              )}
+              <button className="btn-secondary text-sm shrink-0" onClick={handleSave}><Save size={14} strokeWidth={1.5} className="mr-1.5" /> Save All</button>
               <button className="btn-secondary text-sm shrink-0" onClick={onNewExam}><Plus size={14} strokeWidth={1.5} className="mr-1.5" /> New Exam</button>
               <button className="btn-secondary text-sm shrink-0" onClick={handlePrintThis}><Printer size={14} strokeWidth={1.5} className="mr-1.5" /> Print This</button>
               <button className="btn-secondary text-sm shrink-0" onClick={handlePrintAll}><Printer size={14} strokeWidth={1.5} className="mr-1.5" /> Print All</button>
