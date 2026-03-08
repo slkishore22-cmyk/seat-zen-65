@@ -4,7 +4,7 @@ import { ShuffleType } from "@/pages/Index";
 import SeatCard from "@/components/SeatCard";
 import ColorLegend from "@/components/ColorLegend";
 import ActionBar from "@/components/ActionBar";
-import { AlertTriangle, X, Pencil, Undo2 } from "lucide-react";
+import { X, Pencil, Undo2 } from "lucide-react";
 
 interface Props {
   layout: RoomLayout;
