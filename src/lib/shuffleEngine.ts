@@ -735,14 +735,26 @@ function hasRowConflict(seats: Seat[], layout: RoomLayout, idx: number, groupId:
 }
 
 // Step D — University Shuffle
-export function universityShuffle(groups: Group[], layout: RoomLayout): { seats: Seat[]; overflow: string[]; conflictCount: number } {
-  const seats = createEmptyGrid(layout);
+export function universityShuffle(groups: Group[], layout: RoomLayout): { seats: Seat[]; conflictCount: number } {
   const numGroups = groups.length;
 
   if (numGroups <= 1) {
     const result = normalShuffle(groups, layout);
-    return { ...result, conflictCount: 0 };
+    return { seats: result.seats, conflictCount: 0 };
   }
+
+  // Count total students and auto-expand if needed
+  const totalStudents = groups.reduce((sum, g) => sum + g.members.length, 0);
+  const currentCapacity = getTotalCapacity(layout);
+  const effectiveLayout: RoomLayout = { columns: layout.columns.map(c => ({ ...c })) };
+  if (totalStudents > currentCapacity) {
+    const lastCol = effectiveLayout.columns[effectiveLayout.columns.length - 1];
+    const deficit = totalStudents - currentCapacity;
+    const extraRows = Math.ceil(deficit / lastCol.subColumns);
+    lastCol.rows += extraRows;
+  }
+
+  const seats = createEmptyGrid(effectiveLayout);
 
   // Build interleaved pool
   const maxLen = Math.max(...groups.map(g => g.members.length));
@@ -755,17 +767,15 @@ export function universityShuffle(groups: Group[], layout: RoomLayout): { seats:
     }
   }
 
-  const capacity = seats.length;
-  const overflow = pool.slice(capacity).map(p => p.roll);
-  const toPlace = pool.slice(0, capacity);
+  const toPlace = pool;
 
   // Distribute across columns proportionally
-  const columnPools = distributeToColumns(toPlace, layout);
+  const columnPools = distributeToColumns(toPlace, effectiveLayout);
 
   // Fill each column using row-offset rotation
   let seatIdx = 0;
-  for (let c = 0; c < layout.columns.length; c++) {
-    const col = layout.columns[c];
+  for (let c = 0; c < effectiveLayout.columns.length; c++) {
+    const col = effectiveLayout.columns[c];
     const colPool = columnPools[c];
 
     // Split into per-group queues
@@ -791,7 +801,6 @@ export function universityShuffle(groups: Group[], layout: RoomLayout): { seats:
           seats[idx].hex = student.hex;
         } else {
           // Fallback: find any group with remaining students
-          let placed = false;
           for (let g = 0; g < numGroups; g++) {
             const fallbackIdx = (targetGroupIdx + g) % numGroups;
             const fallbackQueue = groupQueues.get(groups[fallbackIdx].id)!;
@@ -801,7 +810,6 @@ export function universityShuffle(groups: Group[], layout: RoomLayout): { seats:
               seats[idx].groupId = student.groupId;
               seats[idx].color = student.color;
               seats[idx].hex = student.hex;
-              placed = true;
               break;
             }
           }
@@ -820,7 +828,7 @@ export function universityShuffle(groups: Group[], layout: RoomLayout): { seats:
     }
   }
 
-  return { seats, overflow, conflictCount };
+  return { seats, conflictCount };
 }
 
 // Get conflict seat indices (uses full-row conflict check)
