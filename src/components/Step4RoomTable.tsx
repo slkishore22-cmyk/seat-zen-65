@@ -103,13 +103,13 @@ const Step4RoomTable = ({
     const shuffledGroups = groups.map(g => ({ ...g, members: [...g.members].sort(() => Math.random() - 0.5) }));
     if (shuffleType === "normal") {
       const result = normalShuffle(shuffledGroups, layout);
-      setSeatMap(result.seats); setOverflow(result.overflow); setConflictCount(0); setLocalInterleaveInfo(result.interleaveInfo);
+      setSeatMap(result.seats); setConflictCount(0); setLocalInterleaveInfo(result.interleaveInfo);
     } else {
       const r = universityShuffle(shuffledGroups, layout);
-      setSeatMap(r.seats); setOverflow(r.overflow); setConflictCount(r.conflictCount);
+      setSeatMap(r.seats); setConflictCount(r.conflictCount);
     }
     setAnimKey(k => k + 1); setShowGapWarning(true); setHistory([]);
-  }, [groups, layout, shuffleType, setSeatMap, setOverflow, setConflictCount]);
+  }, [groups, layout, shuffleType, setSeatMap, setConflictCount]);
 
   const handlePrint = useCallback(() => {
     const printWindow = window.open("", "_blank");
