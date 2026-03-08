@@ -25,38 +25,7 @@ const STEP_LABELS = ["Rooms", "Configure", "Students", "Arrange", "Result"];
 
 const Index = () => {
   const [step, setStep] = useState(1);
-  const [loadingSession, setLoadingSession] = useState(true);
   const { resetSession, restoreSession, setRoomResults, setAllGroups, setCurrentSessionId } = useExamSession();
-
-  // Load last session on mount
-  useEffect(() => {
-    const loadLastSession = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('exam_sessions')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        if (data && !error) {
-          restoreSession({
-            roomResults: data.rooms as any,
-            allGroups: data.groups as any,
-            shuffleType: (data.shuffle_type as ShuffleType) || "normal",
-            currentSessionId: data.id,
-          });
-          setStep(5);
-          toast.success("Last session restored.", { duration: 2000 });
-        }
-      } catch (e) {
-        console.warn("Could not load last session:", e);
-      } finally {
-        setLoadingSession(false);
-      }
-    };
-    loadLastSession();
-  }, []);
 
   const handleNewExam = useCallback(() => {
     setStep(1);
