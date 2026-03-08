@@ -21,7 +21,22 @@ const LoginPage = () => {
         body: { action: "user_login", username: username.trim(), password },
       });
 
-      if (error) throw error;
+      // Handle edge function errors (non-2xx responses)
+      if (error) {
+        // Try to extract the JSON error message from the response
+        let msg = "Invalid credentials";
+        try {
+          if (error instanceof Response || (error as any).context) {
+            const body = typeof (error as any).context === "object" ? (error as any).context : null;
+            if (body?.error) msg = body.error;
+          } else if (typeof error === "object" && "message" in error) {
+            // FunctionsHttpError contains the message
+            msg = (error as any).message || msg;
+          }
+        } catch { /* use default */ }
+        toast.error(msg);
+        return;
+      }
       if (data?.error) {
         toast.error(data.error);
         return;
