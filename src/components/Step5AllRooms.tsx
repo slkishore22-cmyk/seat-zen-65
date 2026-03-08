@@ -147,6 +147,7 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
   }, [allGroups, rooms, shuffleType, setRoomResults, currentSessionId]);
 
   const handleSave = async () => {
+    if (!saveName.trim()) return;
     const userSession = (() => {
       try { return JSON.parse(localStorage.getItem("user_session") || ""); } catch { return null; }
     })();
@@ -156,11 +157,9 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
     }
 
     const totalStudentCount = roomResults.reduce((sum, r) => sum + r.studentCount, 0);
-    const today = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
-    const autoName = `Exam ${today} ${userSession.full_name || ""}`.trim();
 
     const payload = {
-      exam_name: autoName,
+      exam_name: saveName.trim(),
       shuffle_type: shuffleType,
       rooms: roomResults as any,
       groups: allGroups as any,
@@ -179,6 +178,8 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
       console.error("Save error:", error);
     } else if (data) {
       setCurrentSessionId(data.id);
+      setShowSave(false);
+      setSaveName("");
       toast.success("Saved successfully.", { duration: 2000 });
     }
   };
