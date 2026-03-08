@@ -962,19 +962,16 @@ export async function distributeStudentsAcrossRooms(
     }
 
     let seats: Seat[];
-    let overflow: string[];
     let conflictCount = 0;
     let interleaveInfo: InterleaveInfo | undefined;
 
     if (shuffleType === "normal") {
       const r = normalShuffle(roomGroups, layout);
       seats = await fixConflictsWithAI(r.seats, layout, roomGroups);
-      overflow = r.overflow;
       interleaveInfo = r.interleaveInfo;
     } else {
       const r = universityShuffle(roomGroups, layout);
       seats = r.seats;
-      overflow = r.overflow;
       conflictCount = r.conflictCount;
     }
 
@@ -983,7 +980,6 @@ export async function distributeStudentsAcrossRooms(
       roomName: room.name || `Room ${ri + 1}`,
       groups: roomGroups,
       seats,
-      overflow,
       conflictCount,
       studentCount: seats.filter(s => s.rollNumber).length,
       interleaveInfo,

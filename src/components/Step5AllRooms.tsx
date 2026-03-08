@@ -245,13 +245,6 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
         </div>
       </div>
 
-      {activeResult.overflow.length > 0 && (
-        <div className="glass-card p-5 mt-8 max-w-3xl mx-auto">
-          <h3 className="text-sm font-semibold mb-2 flex items-center gap-1.5"><AlertTriangle size={14} className="text-destructive" /> Overflow Students ({activeResult.overflow.length})</h3>
-          <p className="text-xs text-muted-foreground mb-2">These students could not fit in this room:</p>
-          <div className="flex flex-wrap gap-1.5">{activeResult.overflow.map(rn => <span key={rn} className="px-2 py-0.5 rounded-pill bg-secondary text-xs font-medium">{rn}</span>)}</div>
-        </div>
-      )}
 
       {!readOnly && (
         <>

@@ -42,10 +42,10 @@ const Step3ShuffleType = ({ groups, shuffleType, setShuffleType, layout, onGener
   const handleGenerate = () => {
     if (shuffleType === "normal") {
       const result = normalShuffle(groups, layout);
-      onGenerate(result.seats, result.overflow, 0);
+      onGenerate(result.seats, 0);
     } else {
       const result = universityShuffle(groups, layout);
-      onGenerate(result.seats, result.overflow, result.conflictCount);
+      onGenerate(result.seats, result.conflictCount);
     }
   };
 
