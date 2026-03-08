@@ -23,7 +23,7 @@ const STEP_LABELS = ["Rooms", "Configure", "Students", "Arrange", "Result"];
 
 const Index = () => {
   const [step, setStep] = useState(1);
-  const { resetSession, restoreSession, setRoomResults, setAllGroups, setCurrentSessionId } = useExamSession();
+  const { resetSession } = useExamSession();
 
   const handleNewExam = useCallback(() => {
     setStep(1);
