@@ -3,7 +3,7 @@ import { getConflictIndices, detectSequenceGaps, normalShuffle, universityShuffl
 import { useExamSession, SavedSession } from "@/hooks/useExamSession";
 import SeatCard from "@/components/SeatCard";
 import ColorLegend from "@/components/ColorLegend";
-import { AlertTriangle, Shuffle, Save, Plus, Printer, Pencil, Undo2 } from "lucide-react";
+import { Shuffle, Save, Plus, Printer, Pencil, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 
 interface Props {
