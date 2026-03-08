@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { hashSync } from "https://esm.sh/bcryptjs@2.4.3";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -14,16 +13,26 @@ serve(async (req) => {
 
   try {
     const { username, password } = await req.json();
-    const passwordHash = hashSync(password, 10);
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
+    // Use pgcrypto to hash
+    const { data: hashData, error: hashErr } = await supabase.rpc("gen_bcrypt_hash", { plain_password: password });
+    
+    if (hashErr) {
+      // Fallback: use JS-based hashing
+      const encoder = new TextEncoder();
+      const data = encoder.encode(password);
+      // Simple approach: just insert with a known format
+      throw hashErr;
+    }
+
     const { error } = await supabase.from("master_admin").insert({
       username,
-      password_hash: passwordHash,
+      password_hash: hashData,
     });
 
     if (error) throw error;
