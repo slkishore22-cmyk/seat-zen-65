@@ -858,7 +858,6 @@ export interface RoomResult {
   roomName: string;
   groups: Group[];
   seats: Seat[];
-  seats: Seat[];
   conflictCount: number;
   studentCount: number;
   interleaveInfo?: InterleaveInfo;
