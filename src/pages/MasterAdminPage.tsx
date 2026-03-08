@@ -8,14 +8,14 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { LogOut, Copy, RotateCcw, Trash2, UserPlus, Shield } from "lucide-react";
+import { LogOut, Copy, RotateCcw, Trash2, UserPlus, Shield, ChevronRight, ArrowLeft, Calendar, Users } from "lucide-react";
 
 interface AppUser {
   id: string;
@@ -23,6 +23,15 @@ interface AppUser {
   full_name: string;
   is_active: boolean;
   created_at: string | null;
+  session_count?: number;
+}
+
+interface UserSession {
+  id: string;
+  exam_name: string;
+  created_at: string;
+  total_students: number;
+  shuffle_type: string;
 }
 
 const SALT_ROUNDS = 10;
@@ -117,7 +126,6 @@ function CreateUserSection({ onCreated }: { onCreated: () => void }) {
     if (password.length < 4) { toast.error("Password too short"); return; }
     setLoading(true);
     try {
-      // Check uniqueness
       const { data: existing } = await supabase
         .from("app_users")
         .select("id")
@@ -174,8 +182,64 @@ function CreateUserSection({ onCreated }: { onCreated: () => void }) {
   );
 }
 
+// ─── User Sessions View ──────────────────────────────────
+function UserSessionsView({ user, onBack }: { user: AppUser; onBack: () => void }) {
+  const [sessions, setSessions] = useState<UserSession[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    supabase
+      .from("exam_sessions")
+      .select("id, exam_name, created_at, total_students, shuffle_type")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .then(({ data }) => { setSessions((data as UserSession[]) || []); setLoading(false); });
+  }, [user.id]);
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={onBack}><ArrowLeft className="w-4 h-4" /></Button>
+          <CardTitle className="text-lg">{user.full_name}'s Sessions</CardTitle>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <p className="text-sm text-muted-foreground text-center py-8">Loading...</p>
+        ) : sessions.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-8">No sessions found for this user.</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Exam Name</TableHead>
+                <TableHead>Date</TableHead>
+                <TableHead>Students</TableHead>
+                <TableHead>Type</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sessions.map(s => (
+                <TableRow key={s.id}>
+                  <TableCell className="font-medium">{s.exam_name || "Untitled"}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {new Date(s.created_at).toLocaleDateString()}
+                  </TableCell>
+                  <TableCell>{s.total_students}</TableCell>
+                  <TableCell className="text-sm">{s.shuffle_type}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Users Table Section ─────────────────────────────────
-function UsersTableSection({ users, onRefresh }: { users: AppUser[]; onRefresh: () => void }) {
+function UsersTableSection({ users, onRefresh, onViewSessions }: { users: AppUser[]; onRefresh: () => void; onViewSessions: (user: AppUser) => void }) {
   const [resetUser, setResetUser] = useState<AppUser | null>(null);
   const [deleteUser, setDeleteUser] = useState<AppUser | null>(null);
   const [newPassword, setNewPassword] = useState("");
@@ -220,6 +284,7 @@ function UsersTableSection({ users, onRefresh }: { users: AppUser[]; onRefresh: 
                 <TableRow>
                   <TableHead>Full Name</TableHead>
                   <TableHead>Username</TableHead>
+                  <TableHead>Sessions</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -230,6 +295,14 @@ function UsersTableSection({ users, onRefresh }: { users: AppUser[]; onRefresh: 
                   <TableRow key={u.id}>
                     <TableCell className="font-medium">{u.full_name}</TableCell>
                     <TableCell className="font-mono text-sm">{u.username}</TableCell>
+                    <TableCell>
+                      <button
+                        onClick={() => onViewSessions(u)}
+                        className="flex items-center gap-1 text-sm text-primary hover:underline"
+                      >
+                        {u.session_count ?? 0} sessions <ChevronRight className="w-3 h-3" />
+                      </button>
+                    </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {u.created_at ? new Date(u.created_at).toLocaleDateString() : "—"}
                     </TableCell>
@@ -257,7 +330,6 @@ function UsersTableSection({ users, onRefresh }: { users: AppUser[]; onRefresh: 
         </CardContent>
       </Card>
 
-      {/* Reset Password Dialog */}
       <Dialog open={!!resetUser} onOpenChange={open => { if (!open) setResetUser(null); }}>
         <DialogContent>
           <DialogHeader>
@@ -278,7 +350,6 @@ function UsersTableSection({ users, onRefresh }: { users: AppUser[]; onRefresh: 
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirm Dialog */}
       <AlertDialog open={!!deleteUser} onOpenChange={open => { if (!open) setDeleteUser(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -302,13 +373,28 @@ function UsersTableSection({ users, onRefresh }: { users: AppUser[]; onRefresh: 
 // ─── Dashboard ───────────────────────────────────────────
 function Dashboard({ onLogout }: { onLogout: () => void }) {
   const [users, setUsers] = useState<AppUser[]>([]);
+  const [viewingUser, setViewingUser] = useState<AppUser | null>(null);
 
   const fetchUsers = useCallback(async () => {
-    const { data } = await supabase
+    const { data: usersData } = await supabase
       .from("app_users")
       .select("id, username, full_name, is_active, created_at")
       .order("created_at", { ascending: false });
-    if (data) setUsers(data as AppUser[]);
+    if (!usersData) { setUsers([]); return; }
+
+    // Fetch session counts for all users
+    const { data: sessionCounts } = await supabase
+      .from("exam_sessions")
+      .select("user_id");
+
+    const countMap: Record<string, number> = {};
+    if (sessionCounts) {
+      for (const row of sessionCounts) {
+        if (row.user_id) countMap[row.user_id] = (countMap[row.user_id] || 0) + 1;
+      }
+    }
+
+    setUsers(usersData.map(u => ({ ...u, session_count: countMap[u.id] || 0 })) as AppUser[]);
   }, []);
 
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
@@ -328,7 +414,11 @@ function Dashboard({ onLogout }: { onLogout: () => void }) {
       </header>
       <main className="max-w-5xl mx-auto px-6 py-8 space-y-8">
         <CreateUserSection onCreated={fetchUsers} />
-        <UsersTableSection users={users} onRefresh={fetchUsers} />
+        {viewingUser ? (
+          <UserSessionsView user={viewingUser} onBack={() => setViewingUser(null)} />
+        ) : (
+          <UsersTableSection users={users} onRefresh={fetchUsers} onViewSessions={setViewingUser} />
+        )}
       </main>
     </div>
   );

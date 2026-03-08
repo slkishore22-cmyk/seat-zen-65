@@ -1,18 +1,33 @@
+import { useState, useEffect } from "react";
 import { LayoutGrid, Archive, LogOut } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
+import { useExamSession } from "@/hooks/useExamSession";
 
 const TopNav = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { resetSession } = useExamSession();
   const isWizard = location.pathname === "/";
   const isSaved = location.pathname === "/saved";
+  const [sessionCount, setSessionCount] = useState<number | null>(null);
 
   const session = (() => {
     try { return JSON.parse(localStorage.getItem("user_session") || ""); } catch { return null; }
   })();
 
+  useEffect(() => {
+    if (!session?.id) return;
+    supabase
+      .from("exam_sessions")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", session.id)
+      .then(({ count }) => setSessionCount(count ?? 0));
+  }, [session?.id, location.pathname]);
+
   const handleLogout = () => {
     localStorage.removeItem("user_session");
+    resetSession();
     navigate("/login");
   };
 
@@ -51,7 +66,12 @@ const TopNav = () => {
 
           {session && (
             <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-foreground">{session.full_name}</span>
+              <span className="text-sm font-medium text-foreground">
+                {session.full_name}
+                {sessionCount !== null && (
+                  <span className="text-muted-foreground font-normal ml-1.5">· {sessionCount} saved</span>
+                )}
+              </span>
               <button
                 onClick={handleLogout}
                 className="flex items-center gap-1 px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground transition-colors"
