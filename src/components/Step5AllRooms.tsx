@@ -104,10 +104,10 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
     let newResult: Partial<RoomResult>;
     if (shuffleType === "normal") {
       const r = normalShuffle(shuffledGroups, activeLayout);
-      newResult = { seats: r.seats, overflow: r.overflow, conflictCount: 0, studentCount: r.seats.filter(s => s.rollNumber).length, interleaveInfo: r.interleaveInfo };
+      newResult = { seats: r.seats, conflictCount: 0, studentCount: r.seats.filter(s => s.rollNumber).length, interleaveInfo: r.interleaveInfo };
     } else {
       const r = universityShuffle(shuffledGroups, activeLayout);
-      newResult = { seats: r.seats, overflow: r.overflow, conflictCount: r.conflictCount, studentCount: r.seats.filter(s => s.rollNumber).length };
+      newResult = { seats: r.seats, conflictCount: r.conflictCount, studentCount: r.seats.filter(s => s.rollNumber).length };
     }
     const newResults = [...roomResults];
     newResults[activeRoomTab] = { ...newResults[activeRoomTab], ...newResult };
