@@ -47,25 +47,6 @@ const Index = () => {
     setStep(newStep);
   }, [step]);
 
-  const handleLoadSession = useCallback((sessionData: any) => {
-    restoreSession({
-      roomResults: sessionData.rooms,
-      allGroups: sessionData.groups,
-      shuffleType: sessionData.shuffle_type || "normal",
-      currentSessionId: sessionData.id,
-    });
-    setStep(5);
-    toast.success("Session loaded.", { duration: 2000 });
-  }, [restoreSession]);
-
-  if (loadingSession) {
-    return (
-      <main className="max-w-6xl mx-auto px-6 pt-24 pb-48 flex items-center justify-center">
-        <p className="text-muted-foreground text-sm">Loading...</p>
-      </main>
-    );
-  }
-
   return (
     <main className="max-w-6xl mx-auto px-6 pt-24 pb-48">
       <div className="flex items-center justify-center gap-3 mb-12">
