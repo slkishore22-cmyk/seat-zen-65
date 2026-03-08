@@ -100,7 +100,7 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
 
   const handleReshuffleThis = useCallback(() => {
     if (!activeResult || !activeLayout) return;
-    const shuffledGroups = activeResult.groups.map(g => ({ ...g, members: [...g.members].sort(() => Math.random() - 0.5) }));
+    const shuffledGroups = activeResult.groups.map(g => ({ ...g, members: seededShuffle(g.members) }));
     let newResult: Partial<RoomResult>;
     if (shuffleType === "normal") {
       const r = normalShuffle(shuffledGroups, activeLayout);
@@ -118,7 +118,7 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
 
   const handleReshuffleAll = useCallback(async () => {
     const results = await distributeStudentsAcrossRooms(
-      allGroups.map(g => ({ ...g, members: [...g.members].sort(() => Math.random() - 0.5) })),
+      allGroups.map(g => ({ ...g, members: seededShuffle(g.members) })),
       rooms, shuffleType
     );
     setRoomResults(results);
