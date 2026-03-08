@@ -617,20 +617,50 @@ export async function fixConflictsWithAI(
     }
   }
 
-  try {
-    const { data, error } = await supabase.functions.invoke("ai-fix-conflicts", {
-      body: {
-        grid: seats,
-        layout,
-        groups,
-        conflicts,
-        conflictPositions: positions,
-        totalStudents: originalFilledCount,
-      },
-    });
+  const MAX_RETRIES = 3;
 
-    if (error) throw error;
-    if (data?.error) throw new Error(data.error);
+  try {
+    let data: any = null;
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const result = await supabase.functions.invoke("ai-fix-conflicts", {
+        body: {
+          grid: seats,
+          layout,
+          groups,
+          conflicts,
+          conflictPositions: positions,
+          totalStudents: originalFilledCount,
+        },
+      });
+
+      if (result.error) {
+        // Check if it's a 429 rate limit error
+        const errorMsg = result.error?.message || String(result.error);
+        if (errorMsg.includes("429") && attempt < MAX_RETRIES) {
+          const delay = Math.pow(2, attempt + 1) * 1000; // 2s, 4s, 8s
+          console.warn(`Rate limited, retrying in ${delay / 1000}s (attempt ${attempt + 1}/${MAX_RETRIES})`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        throw result.error;
+      }
+
+      if (result.data?.error) {
+        if (String(result.data.error).includes("Rate limit") && attempt < MAX_RETRIES) {
+          const delay = Math.pow(2, attempt + 1) * 1000;
+          console.warn(`Rate limited, retrying in ${delay / 1000}s (attempt ${attempt + 1}/${MAX_RETRIES})`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        throw new Error(result.data.error);
+      }
+
+      data = result.data;
+      break;
+    }
+
+    if (!data) throw new Error("All retry attempts exhausted");
 
     if (data?.fixedGrid && Array.isArray(data.fixedGrid)) {
       const fixedGrid: Seat[] = data.fixedGrid;
