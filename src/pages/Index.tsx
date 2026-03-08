@@ -6,8 +6,6 @@ import Step3StudentInput from "@/components/Step3StudentInput";
 import Step4ShuffleType from "@/components/Step4ShuffleType";
 import Step5AllRooms from "@/components/Step5AllRooms";
 import { ArrowLeft, Check } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
-import { toast } from "sonner";
 
 export type ShuffleType = "normal" | "university";
 
