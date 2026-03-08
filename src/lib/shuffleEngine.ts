@@ -575,9 +575,10 @@ export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Sea
 // AI POST-PROCESSING — Fix horizontal conflicts
 // ==========================================
 
-/** Find horizontal same-department conflicts in a grid */
-function findHorizontalConflicts(seats: Seat[], layout: RoomLayout): number[] {
-  const conflicts: number[] = [];
+/** Find horizontal same-department conflicts with position info */
+function findHorizontalConflictsWithPositions(seats: Seat[], layout: RoomLayout): { indices: number[]; positions: string[] } {
+  const indices: number[] = [];
+  const positions: string[] = [];
   let seatOffset = 0;
   for (let c = 0; c < layout.columns.length; c++) {
     const col = layout.columns[c];
@@ -586,68 +587,113 @@ function findHorizontalConflicts(seats: Seat[], layout: RoomLayout): number[] {
         const idx = seatOffset + r * col.subColumns + sc;
         const nextIdx = seatOffset + r * col.subColumns + sc + 1;
         if (seats[idx].groupId && seats[nextIdx].groupId && seats[idx].groupId === seats[nextIdx].groupId) {
-          if (!conflicts.includes(idx)) conflicts.push(idx);
-          if (!conflicts.includes(nextIdx)) conflicts.push(nextIdx);
+          if (!indices.includes(idx)) {
+            indices.push(idx);
+            positions.push(`col${c},row${r},sc${sc}`);
+          }
+          if (!indices.includes(nextIdx)) {
+            indices.push(nextIdx);
+            positions.push(`col${c},row${r},sc${sc + 1}`);
+          }
         }
       }
     }
     seatOffset += col.subColumns * col.rows;
   }
-  return conflicts;
+  return { indices, positions };
 }
 
 /**
  * AI post-processing: fix horizontal same-dept conflicts.
  * Called after normalShuffle() finishes.
- * - Vertical same-dept is CORRECT, do not touch.
- * - Only fix horizontal same-dept adjacency.
- * - Never leave empty seats or create overflow.
- * - Max 100 swap attempts.
+ * Returns the AI-fixed grid, or the original if AI fails validation.
  */
 export async function fixConflictsWithAI(
   seats: Seat[],
   layout: RoomLayout,
   groups: Group[]
 ): Promise<Seat[]> {
-  const conflicts = findHorizontalConflicts(seats, layout);
+  const { indices: conflicts, positions } = findHorizontalConflictsWithPositions(seats, layout);
   if (conflicts.length === 0) return seats;
+
+  // Count original filled seats and collect rollNumbers
+  const originalRolls = new Set<string>();
+  let originalFilledCount = 0;
+  for (const s of seats) {
+    if (s.rollNumber) {
+      originalFilledCount++;
+      originalRolls.add(s.rollNumber);
+    }
+  }
 
   try {
     const { data, error } = await supabase.functions.invoke("ai-fix-conflicts", {
       body: {
         grid: seats,
         layout,
-        shuffleType: "normal",
-        conflicts,
         groups,
+        conflicts,
+        conflictPositions: positions,
+        totalStudents: originalFilledCount,
       },
     });
 
     if (error) throw error;
     if (data?.error) throw new Error(data.error);
 
-    if (data?.swaps && data.swaps.length > 0) {
-      const newSeats = [...seats];
-      for (const swap of data.swaps) {
-        const { fromIndex, toIndex } = swap;
-        if (fromIndex >= 0 && fromIndex < newSeats.length && toIndex >= 0 && toIndex < newSeats.length) {
-          const tempRoll = newSeats[fromIndex].rollNumber;
-          const tempGroupId = newSeats[fromIndex].groupId;
-          const tempColor = newSeats[fromIndex].color;
-          const tempHex = newSeats[fromIndex].hex;
+    if (data?.fixedGrid && Array.isArray(data.fixedGrid)) {
+      const fixedGrid: Seat[] = data.fixedGrid;
 
-          newSeats[fromIndex].rollNumber = newSeats[toIndex].rollNumber;
-          newSeats[fromIndex].groupId = newSeats[toIndex].groupId;
-          newSeats[fromIndex].color = newSeats[toIndex].color;
-          newSeats[fromIndex].hex = newSeats[toIndex].hex;
-
-          newSeats[toIndex].rollNumber = tempRoll;
-          newSeats[toIndex].groupId = tempGroupId;
-          newSeats[toIndex].color = tempColor;
-          newSeats[toIndex].hex = tempHex;
+      // VALIDATION 1: Count must match
+      let fixedFilledCount = 0;
+      const fixedRolls = new Set<string>();
+      for (const s of fixedGrid) {
+        if (s.rollNumber) {
+          fixedFilledCount++;
+          if (fixedRolls.has(s.rollNumber)) {
+            console.warn("AI response has duplicate rollNumber:", s.rollNumber);
+            return seats; // Discard
+          }
+          fixedRolls.add(s.rollNumber);
         }
       }
-      return newSeats;
+
+      if (fixedFilledCount !== originalFilledCount) {
+        console.warn(`AI response seat count mismatch: original=${originalFilledCount}, fixed=${fixedFilledCount}`);
+        return seats; // Discard
+      }
+
+      // VALIDATION 2: Every original rollNumber must exist
+      for (const roll of originalRolls) {
+        if (!fixedRolls.has(roll)) {
+          console.warn("AI response missing rollNumber:", roll);
+          return seats; // Discard
+        }
+      }
+
+      // VALIDATION 3: No new rollNumbers
+      for (const roll of fixedRolls) {
+        if (!originalRolls.has(roll)) {
+          console.warn("AI response has unknown rollNumber:", roll);
+          return seats; // Discard
+        }
+      }
+
+      // All checks passed — apply the fixed grid
+      // Restore seat position metadata from original (AI only moves student data)
+      const result = seats.map((original, i) => {
+        const fixed = fixedGrid[i];
+        if (!fixed) return original;
+        return {
+          ...original,
+          rollNumber: fixed.rollNumber,
+          groupId: fixed.groupId,
+          color: fixed.color,
+          hex: fixed.hex,
+        };
+      });
+
+      return result;
     }
 
     return seats;
