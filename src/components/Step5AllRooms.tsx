@@ -191,7 +191,7 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
       {/* Room grid */}
       <div className="overflow-x-auto mt-6">
         <div
-          className="min-w-max mx-auto"
+          className="min-w-max mx-auto animate-fade-in"
           style={{ background: "hsl(var(--card))", borderRadius: 16, padding: 24, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}
           key={animKey}
         >
