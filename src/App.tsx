@@ -16,6 +16,7 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/saved" element={<SavedRoomsPage />} />
+          <Route path="/master" element={<MasterAdminPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </ExamSessionProvider>
