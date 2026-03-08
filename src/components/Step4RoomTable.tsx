@@ -37,8 +37,8 @@ function seatFlatIndex(layout: RoomLayout, ci: number, ri: number, si: number): 
 }
 
 const Step4RoomTable = ({
-  layout, groups, seatMap, setSeatMap, overflow, conflictCount,
-  setConflictCount, setOverflow, shuffleType, onNewRoom, onSave, readOnly,
+  layout, groups, seatMap, setSeatMap, conflictCount,
+  setConflictCount, shuffleType, onNewRoom, onSave, readOnly,
   interleaveInfo,
 }: Props) => {
   const [animKey, setAnimKey] = useState(0);
