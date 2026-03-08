@@ -84,7 +84,7 @@ const Index = () => {
       )}
 
       <div className="step-enter" key={step}>
-        {step === 1 && <Step1RoomCount onNext={() => goToStep(2)} onLoadSession={handleLoadSession} />}
+        {step === 1 && <Step1RoomCount onNext={() => goToStep(2)} />}
         {step === 2 && <Step2RoomConfig onNext={() => goToStep(3)} onBack={() => setStep(1)} />}
         {step === 3 && <Step3StudentInput onNext={() => goToStep(4)} onBack={() => setStep(2)} />}
         {step === 4 && <Step4ShuffleType onGenerate={() => goToStep(5)} onBack={() => setStep(3)} />}
