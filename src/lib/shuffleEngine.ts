@@ -5,14 +5,14 @@
 import { supabase } from "@/integrations/supabase/client";
 
 export const GROUP_COLORS = [
-  { name: "Red", hex: "#FF3B30", hsl: "4 100% 59%" },
-  { name: "Green", hex: "#34C759", hsl: "142 69% 50%" },
-  { name: "Blue", hex: "#007AFF", hsl: "211 100% 50%" },
-  { name: "Orange", hex: "#FF9500", hsl: "33 100% 50%" },
-  { name: "Purple", hex: "#AF52DE", hsl: "280 58% 60%" },
-  { name: "Teal", hex: "#5AC8FA", hsl: "199 92% 65%" },
-  { name: "Pink", hex: "#FF2D55", hsl: "349 100% 59%" },
-  { name: "Yellow", hex: "#FFCC00", hsl: "48 100% 50%" },
+  { name: "Red", hex: "#C0392B", hsl: "6 63% 46%" },
+  { name: "Blue", hex: "#1A5276", hsl: "204 63% 28%" },
+  { name: "Green", hex: "#1E8449", hsl: "150 63% 32%" },
+  { name: "Brown", hex: "#784212", hsl: "28 72% 27%" },
+  { name: "Purple", hex: "#6C3483", hsl: "281 42% 36%" },
+  { name: "Teal", hex: "#117A65", hsl: "166 74% 27%" },
+  { name: "Amber", hex: "#B7770D", hsl: "38 87% 38%" },
+  { name: "Ocean", hex: "#1F618D", hsl: "206 64% 34%" },
 ];
 
 export interface ColumnConfig {
