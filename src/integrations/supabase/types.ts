@@ -50,6 +50,7 @@ export type Database = {
           rooms: Json | null
           shuffle_type: string | null
           total_students: number | null
+          user_id: string | null
         }
         Insert: {
           created_at?: string | null
@@ -59,6 +60,7 @@ export type Database = {
           rooms?: Json | null
           shuffle_type?: string | null
           total_students?: number | null
+          user_id?: string | null
         }
         Update: {
           created_at?: string | null
@@ -68,6 +70,7 @@ export type Database = {
           rooms?: Json | null
           shuffle_type?: string | null
           total_students?: number | null
+          user_id?: string | null
         }
         Relationships: []
       }
