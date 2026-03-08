@@ -36,8 +36,8 @@ function seatFlatIndex(layout: RoomLayout, ci: number, ri: number, si: number): 
 }
 
 const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
-  const { session, setRoomResults, setActiveRoomTab, addSession } = useExamSession();
-  const { roomResults, activeRoomTab, shuffleType, allGroups, rooms } = session;
+  const { session, setRoomResults, setActiveRoomTab, addSession, setCurrentSessionId } = useExamSession();
+  const { roomResults, activeRoomTab, shuffleType, allGroups, rooms, currentSessionId } = session;
   const [animKey, setAnimKey] = useState(0);
   const [showSave, setShowSave] = useState(false);
   const [saveName, setSaveName] = useState("");
