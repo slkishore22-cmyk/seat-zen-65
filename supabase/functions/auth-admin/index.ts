@@ -25,6 +25,21 @@ serve(async (req) => {
   try {
     const { action, ...payload } = await req.json();
 
+    // ── SETUP MASTER (one-time) ──
+    if (action === "setup_master") {
+      const { username, password } = payload;
+      const { data: existing } = await supabase.from("master_admin").select("id").limit(1).maybeSingle();
+      if (existing) return json({ error: "Master admin already exists" }, 409);
+      const hash = await bcrypt.hash(password);
+      const { data, error } = await supabase
+        .from("master_admin")
+        .insert({ username, password_hash: hash })
+        .select("id, username")
+        .single();
+      if (error) throw error;
+      return json({ admin: data });
+    }
+
     // ── MASTER LOGIN ──
     if (action === "master_login") {
       const { username, password } = payload;
