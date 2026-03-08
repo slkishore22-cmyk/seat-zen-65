@@ -116,8 +116,8 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
     setHistory([]);
   }, [activeResult, activeLayout, roomResults, activeRoomTab, shuffleType, setRoomResults]);
 
-  const handleReshuffleAll = useCallback(() => {
-    const results = distributeStudentsAcrossRooms(
+  const handleReshuffleAll = useCallback(async () => {
+    const results = await distributeStudentsAcrossRooms(
       allGroups.map(g => ({ ...g, members: [...g.members].sort(() => Math.random() - 0.5) })),
       rooms, shuffleType
     );

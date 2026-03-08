@@ -1,7 +1,8 @@
 // ==========================================
 // EXAM SEATING SHUFFLE ENGINE
-// Pure utility — no React, no side effects
 // ==========================================
+
+import { supabase } from "@/integrations/supabase/client";
 
 export const GROUP_COLORS = [
   { name: "Red", hex: "#FF3B30", hsl: "4 100% 59%" },
@@ -570,6 +571,92 @@ export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Sea
   };
 }
 
+// ==========================================
+// AI POST-PROCESSING — Fix horizontal conflicts
+// ==========================================
+
+/** Find horizontal same-department conflicts in a grid */
+function findHorizontalConflicts(seats: Seat[], layout: RoomLayout): number[] {
+  const conflicts: number[] = [];
+  let seatOffset = 0;
+  for (let c = 0; c < layout.columns.length; c++) {
+    const col = layout.columns[c];
+    for (let r = 0; r < col.rows; r++) {
+      for (let sc = 0; sc < col.subColumns - 1; sc++) {
+        const idx = seatOffset + r * col.subColumns + sc;
+        const nextIdx = seatOffset + r * col.subColumns + sc + 1;
+        if (seats[idx].groupId && seats[nextIdx].groupId && seats[idx].groupId === seats[nextIdx].groupId) {
+          if (!conflicts.includes(idx)) conflicts.push(idx);
+          if (!conflicts.includes(nextIdx)) conflicts.push(nextIdx);
+        }
+      }
+    }
+    seatOffset += col.subColumns * col.rows;
+  }
+  return conflicts;
+}
+
+/**
+ * AI post-processing: fix horizontal same-dept conflicts.
+ * Called after normalShuffle() finishes.
+ * - Vertical same-dept is CORRECT, do not touch.
+ * - Only fix horizontal same-dept adjacency.
+ * - Never leave empty seats or create overflow.
+ * - Max 100 swap attempts.
+ */
+export async function fixConflictsWithAI(
+  seats: Seat[],
+  layout: RoomLayout,
+  groups: Group[]
+): Promise<Seat[]> {
+  const conflicts = findHorizontalConflicts(seats, layout);
+  if (conflicts.length === 0) return seats;
+
+  try {
+    const { data, error } = await supabase.functions.invoke("ai-fix-conflicts", {
+      body: {
+        grid: seats,
+        layout,
+        shuffleType: "normal",
+        conflicts,
+        groups,
+      },
+    });
+
+    if (error) throw error;
+    if (data?.error) throw new Error(data.error);
+
+    if (data?.swaps && data.swaps.length > 0) {
+      const newSeats = [...seats];
+      for (const swap of data.swaps) {
+        const { fromIndex, toIndex } = swap;
+        if (fromIndex >= 0 && fromIndex < newSeats.length && toIndex >= 0 && toIndex < newSeats.length) {
+          const tempRoll = newSeats[fromIndex].rollNumber;
+          const tempGroupId = newSeats[fromIndex].groupId;
+          const tempColor = newSeats[fromIndex].color;
+          const tempHex = newSeats[fromIndex].hex;
+
+          newSeats[fromIndex].rollNumber = newSeats[toIndex].rollNumber;
+          newSeats[fromIndex].groupId = newSeats[toIndex].groupId;
+          newSeats[fromIndex].color = newSeats[toIndex].color;
+          newSeats[fromIndex].hex = newSeats[toIndex].hex;
+
+          newSeats[toIndex].rollNumber = tempRoll;
+          newSeats[toIndex].groupId = tempGroupId;
+          newSeats[toIndex].color = tempColor;
+          newSeats[toIndex].hex = tempHex;
+        }
+      }
+      return newSeats;
+    }
+
+    return seats;
+  } catch (e) {
+    console.warn("AI post-processing failed, using rule-based result:", e);
+    return seats;
+  }
+}
+
 // Check full-row conflict: no two same-group students in the same row within a column
 function hasRowConflict(seats: Seat[], layout: RoomLayout, idx: number, groupId: string): boolean {
   const seat = seats[idx];
@@ -732,11 +819,11 @@ export interface RoomResult {
   interleaveInfo?: InterleaveInfo;
 }
 
-export function distributeStudentsAcrossRooms(
+export async function distributeStudentsAcrossRooms(
   groups: Group[],
   rooms: RoomConfig[],
   shuffleType: "normal" | "university"
-): RoomResult[] {
+): Promise<RoomResult[]> {
   if (rooms.length === 0 || groups.length === 0) return [];
 
   // STEP 1: Calculate each room's seat capacity
@@ -836,7 +923,7 @@ export function distributeStudentsAcrossRooms(
 
     if (shuffleType === "normal") {
       const r = normalShuffle(roomGroups, layout);
-      seats = r.seats;
+      seats = await fixConflictsWithAI(r.seats, layout, roomGroups);
       overflow = r.overflow;
       interleaveInfo = r.interleaveInfo;
     } else {
