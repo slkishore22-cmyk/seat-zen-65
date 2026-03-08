@@ -379,12 +379,14 @@ export function getSubColGroupAssignment(layout: RoomLayout, groups: Group[]): {
  * THE LAW:
  *   - Each sub-column is PERMANENTLY assigned to one department (round-robin).
  *   - Fill each sub-column top-to-bottom with that department's sorted students.
- *   - Overflow students fill remaining empty seats, preferring non-conflicting neighbors.
+ *   - Remaining students fill empty seats, preferring non-conflicting neighbors.
+ *   - If no seats remain, expand the last column by adding rows until all students fit.
  */
-export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Seat[]; overflow: string[]; interleaveInfo: InterleaveInfo } {
-  const seats = createEmptyGrid(layout);
+export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Seat[]; interleaveInfo: InterleaveInfo } {
   const emptyInfo: InterleaveInfo = { departmentNames: [], pattern: "", validated: true, failedAt: null, columnWarnings: [] };
-  if (groups.length === 0) return { seats, overflow: [], interleaveInfo: emptyInfo };
+  if (groups.length === 0) {
+    return { seats: createEmptyGrid(layout), interleaveInfo: emptyInfo };
+  }
 
   const numGroups = groups.length;
 
@@ -402,12 +404,26 @@ export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Sea
     return deduped;
   });
 
+  // Count total students
+  const totalStudents = queues.reduce((sum, q) => sum + q.length, 0);
+  const currentCapacity = getTotalCapacity(layout);
+
+  // Auto-expand last column if needed
+  const effectiveLayout: RoomLayout = { columns: layout.columns.map(c => ({ ...c })) };
+  if (totalStudents > currentCapacity) {
+    const lastCol = effectiveLayout.columns[effectiveLayout.columns.length - 1];
+    const deficit = totalStudents - currentCapacity;
+    const extraRows = Math.ceil(deficit / lastCol.subColumns);
+    lastCol.rows += extraRows;
+  }
+
+  const seats = createEmptyGrid(effectiveLayout);
+
   // STEP 2 + 3: Permanent sub-column assignment + vertical fill
-  // Build a 3D grid reference: grid[c][r][sc] maps to seat index
   const gridRef: number[][][] = [];
   let seatOffset = 0;
-  for (let c = 0; c < layout.columns.length; c++) {
-    const col = layout.columns[c];
+  for (let c = 0; c < effectiveLayout.columns.length; c++) {
+    const col = effectiveLayout.columns[c];
     gridRef[c] = [];
     for (let r = 0; r < col.rows; r++) {
       gridRef[c][r] = [];
@@ -419,13 +435,12 @@ export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Sea
   }
 
   // Fill each sub-column top to bottom
-  for (let c = 0; c < layout.columns.length; c++) {
-    const col = layout.columns[c];
+  for (let c = 0; c < effectiveLayout.columns.length; c++) {
+    const col = effectiveLayout.columns[c];
     for (let sc = 0; sc < col.subColumns; sc++) {
-      // Global sub-column index for department assignment
       let globalSc = sc;
       for (let pc = 0; pc < c; pc++) {
-        globalSc += layout.columns[pc].subColumns;
+        globalSc += effectiveLayout.columns[pc].subColumns;
       }
       const gi = globalSc % numGroups;
       const queue = queues[gi];
@@ -440,31 +455,29 @@ export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Sea
           seats[idx].color = group.color;
           seats[idx].hex = group.hex;
         }
-        // else: seat stays empty for overflow pass
       }
     }
   }
 
-  // STEP 3: Collect overflow students
-  const overflow_pool: { roll: string; gi: number }[] = [];
+  // STEP 3: Collect remaining students
+  const remaining_pool: { roll: string; gi: number }[] = [];
   for (let g = 0; g < numGroups; g++) {
     while (queues[g].length > 0) {
-      overflow_pool.push({ roll: queues[g].shift()!, gi: g });
+      remaining_pool.push({ roll: queues[g].shift()!, gi: g });
     }
   }
 
-  // STEP 4: Advanced overflow placement with 4-priority system
-  if (overflow_pool.length > 0) {
-    for (let c = 0; c < layout.columns.length; c++) {
-      const col = layout.columns[c];
+  // STEP 4: Place remaining students into empty seats with priority system
+  if (remaining_pool.length > 0) {
+    for (let c = 0; c < effectiveLayout.columns.length; c++) {
+      const col = effectiveLayout.columns[c];
       const subCols = col.subColumns;
       for (let sc = 0; sc < subCols; sc++) {
         for (let r = 0; r < col.rows; r++) {
           const idx = gridRef[c][r][sc];
-          if (seats[idx].rollNumber) continue; // not empty
-          if (overflow_pool.length === 0) continue;
+          if (seats[idx].rollNumber) continue;
+          if (remaining_pool.length === 0) continue;
 
-          // Collect all group IDs already present in this row
           const rowGroupSet = new Set<string>();
           for (let s = 0; s < subCols; s++) {
             const seatInRow = seats[gridRef[c][r][s]];
@@ -473,7 +486,6 @@ export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Sea
             }
           }
 
-          // Immediate neighbor group IDs
           const leftGid = sc > 0 && seats[gridRef[c][r][sc - 1]].rollNumber
             ? seats[gridRef[c][r][sc - 1]].groupId : null;
           const rightGid = sc < subCols - 1 && seats[gridRef[c][r][sc + 1]].rollNumber
@@ -482,25 +494,25 @@ export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Sea
           let best = -1;
 
           // PRIORITY 1: Not in row AND not adjacent to neighbors
-          for (let i = 0; i < overflow_pool.length; i++) {
-            const gid = groups[overflow_pool[i].gi].id;
+          for (let i = 0; i < remaining_pool.length; i++) {
+            const gid = groups[remaining_pool[i].gi].id;
             if (!rowGroupSet.has(gid) && gid !== leftGid && gid !== rightGid) {
               best = i; break;
             }
           }
 
-          // PRIORITY 2: Not in row (ignore adjacency — dept must repeat)
+          // PRIORITY 2: Not in row
           if (best === -1) {
-            for (let i = 0; i < overflow_pool.length; i++) {
-              const gid = groups[overflow_pool[i].gi].id;
+            for (let i = 0; i < remaining_pool.length; i++) {
+              const gid = groups[remaining_pool[i].gi].id;
               if (!rowGroupSet.has(gid)) { best = i; break; }
             }
           }
 
           // PRIORITY 3: Not adjacent to immediate neighbors
           if (best === -1) {
-            for (let i = 0; i < overflow_pool.length; i++) {
-              const gid = groups[overflow_pool[i].gi].id;
+            for (let i = 0; i < remaining_pool.length; i++) {
+              const gid = groups[remaining_pool[i].gi].id;
               if (gid !== leftGid && gid !== rightGid) { best = i; break; }
             }
           }
@@ -515,8 +527,8 @@ export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Sea
               }
             }
             let minCnt = Infinity;
-            for (let i = 0; i < overflow_pool.length; i++) {
-              const gid = groups[overflow_pool[i].gi].id;
+            for (let i = 0; i < remaining_pool.length; i++) {
+              const gid = groups[remaining_pool[i].gi].id;
               const cnt = rowCnt[gid] || 0;
               if (cnt < minCnt) { minCnt = cnt; best = i; }
             }
@@ -525,7 +537,7 @@ export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Sea
           // ABSOLUTE FALLBACK
           if (best === -1) best = 0;
 
-          const student = overflow_pool.splice(best, 1)[0];
+          const student = remaining_pool.splice(best, 1)[0];
           const group = groups[student.gi];
           seats[idx].rollNumber = student.roll;
           seats[idx].groupId = group.id;
@@ -536,31 +548,10 @@ export function normalShuffle(groups: Group[], layout: RoomLayout): { seats: Sea
     }
   }
 
-  // STEP 5: Count results
-  let totalPlaced = 0;
-  let totalEmpty = 0;
-  for (const s of seats) {
-    if (s.rollNumber) totalPlaced++;
-    else totalEmpty++;
-  }
-
-  // Any remaining overflow students that couldn't be placed
-  const overflow: string[] = [];
-  for (const s of overflow_pool) {
-    overflow.push(s.roll);
-  }
-
-  // Assertion check
-  const totalStudents = groups.reduce((sum, g) => sum + g.members.length, 0);
-  if (totalPlaced + overflow.length !== totalStudents) {
-    console.error(`[normalShuffle] Assertion failed: placed(${totalPlaced}) + overflow(${overflow.length}) !== total(${totalStudents})`);
-  }
-
   const pattern = groups.map((_, i) => i + 1).join("-");
 
   return {
     seats,
-    overflow,
     interleaveInfo: {
       departmentNames: groups.map(g => g.label),
       pattern,
