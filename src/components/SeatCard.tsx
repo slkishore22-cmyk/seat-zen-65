@@ -79,7 +79,7 @@ const SeatCard = ({
       onDrop={editMode ? (e) => onDrop(e, dndId) : undefined}
       onDragEnd={editMode ? onDragEnd : undefined}
     >
-      <span style={{ fontSize: 13, fontWeight: 600, color: "#1D1D1F", lineHeight: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <span style={{ fontSize: 13, fontWeight: 700, color: seat.hex || "#1D1D1F", lineHeight: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {seat.rollNumber}
       </span>
     </div>

@@ -68,9 +68,9 @@ const Step3StudentInput = ({ onNext, onBack }: Props) => {
                     key={rn}
                     className="chip-animate inline-flex items-center gap-1 pl-2.5 pr-1.5 py-1 rounded-pill text-xs font-medium"
                     style={{
-                      backgroundColor: `${group.hex}20`,
+                      backgroundColor: `${group.hex}40`,
                       color: group.hex,
-                      border: `1px solid ${group.hex}40`,
+                      border: `1px solid ${group.hex}60`,
                     }}
                   >
                     {rn}
