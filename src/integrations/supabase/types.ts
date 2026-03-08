@@ -14,6 +14,47 @@ export type Database = {
   }
   public: {
     Tables: {
+      app_users: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          full_name: string | null
+          id: string
+          is_active: boolean | null
+          password_hash: string
+          role: string | null
+          username: string
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          full_name?: string | null
+          id?: string
+          is_active?: boolean | null
+          password_hash: string
+          role?: string | null
+          username: string
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          full_name?: string | null
+          id?: string
+          is_active?: boolean | null
+          password_hash?: string
+          role?: string | null
+          username?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "app_users_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "master_admin"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       exam_sessions: {
         Row: {
           created_at: string | null
@@ -41,6 +82,27 @@ export type Database = {
           rooms?: Json | null
           shuffle_type?: string | null
           total_students?: number | null
+        }
+        Relationships: []
+      }
+      master_admin: {
+        Row: {
+          created_at: string | null
+          id: string
+          password_hash: string
+          username: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          password_hash: string
+          username: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          password_hash?: string
+          username?: string
         }
         Relationships: []
       }
