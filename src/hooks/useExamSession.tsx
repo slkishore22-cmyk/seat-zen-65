@@ -11,6 +11,7 @@ export interface ExamSession {
   shuffleType: ShuffleType;
   roomResults: RoomResult[];
   activeRoomTab: number;
+  currentSessionId: string | null;
 }
 
 export interface SavedSession {
@@ -32,8 +33,9 @@ interface ExamSessionContextType {
   setShuffleType: (type: ShuffleType) => void;
   setRoomResults: (results: RoomResult[]) => void;
   setActiveRoomTab: (tab: number) => void;
+  setCurrentSessionId: (id: string | null) => void;
   resetSession: () => void;
-  // Saved sessions
+  restoreSession: (data: Partial<ExamSession>) => void;
   savedSessions: SavedSession[];
   addSession: (session: SavedSession) => void;
   deleteSession: (id: string) => void;
@@ -47,6 +49,7 @@ const defaultSession: ExamSession = {
   shuffleType: "normal",
   roomResults: [],
   activeRoomTab: 0,
+  currentSessionId: null,
 };
 
 const ExamSessionContext = createContext<ExamSessionContextType | null>(null);
@@ -97,8 +100,16 @@ export function ExamSessionProvider({ children }: { children: ReactNode }) {
     setSession(prev => ({ ...prev, activeRoomTab }));
   }, []);
 
+  const setCurrentSessionId = useCallback((currentSessionId: string | null) => {
+    setSession(prev => ({ ...prev, currentSessionId }));
+  }, []);
+
   const resetSession = useCallback(() => {
     setSession({ ...defaultSession });
+  }, []);
+
+  const restoreSession = useCallback((data: Partial<ExamSession>) => {
+    setSession(prev => ({ ...prev, ...data }));
   }, []);
 
   const addSession = useCallback((s: SavedSession) => {
@@ -113,7 +124,8 @@ export function ExamSessionProvider({ children }: { children: ReactNode }) {
     <ExamSessionContext.Provider value={{
       session, setTotalRooms, setRooms, updateRoom, setRawInput,
       setAllGroups, setShuffleType, setRoomResults, setActiveRoomTab,
-      resetSession, savedSessions, addSession, deleteSession,
+      setCurrentSessionId, resetSession, restoreSession,
+      savedSessions, addSession, deleteSession,
     }}>
       {children}
     </ExamSessionContext.Provider>

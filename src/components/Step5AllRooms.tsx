@@ -144,13 +144,32 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
     }
   }, [allGroups, rooms, shuffleType, setRoomResults, currentSessionId]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!saveName.trim()) return;
-    const saved: SavedSession = { id: crypto.randomUUID(), name: saveName.trim(), createdAt: new Date().toISOString(), shuffleType, totalStudents, roomResults };
-    addSession(saved);
-    setShowSave(false);
-    setSaveName("");
-    toast.success("All rooms saved!", { duration: 2000 });
+    const totalStudentCount = roomResults.reduce((sum, r) => sum + r.studentCount, 0);
+    const payload = {
+      exam_name: saveName.trim(),
+      shuffle_type: shuffleType,
+      rooms: roomResults as any,
+      groups: allGroups as any,
+      total_students: totalStudentCount,
+    };
+
+    const { data, error } = await supabase
+      .from('exam_sessions')
+      .insert(payload)
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      toast.error("Save failed. Please try again.");
+      console.error("Save error:", error);
+    } else if (data) {
+      setCurrentSessionId(data.id);
+      setShowSave(false);
+      setSaveName("");
+      toast.success("All rooms saved successfully.", { duration: 2000 });
+    }
   };
 
   const handlePrintThis = useCallback(() => {
