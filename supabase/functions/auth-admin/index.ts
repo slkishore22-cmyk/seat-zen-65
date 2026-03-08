@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import * as bcrypt from "https://deno.land/x/bcrypt@v0.4.1/mod.ts";
+import { hash as hashPassword, verify as verifyPassword } from "https://deno.land/x/scrypt@v4.3.4/mod.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -13,6 +13,35 @@ function json(body: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+// Simple password hashing using Web Crypto (PBKDF2)
+async function hashPw(password: string): Promise<string> {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" }, key, 256
+  );
+  const hashArr = new Uint8Array(bits);
+  const saltHex = Array.from(salt).map(b => b.toString(16).padStart(2, "0")).join("");
+  const hashHex = Array.from(hashArr).map(b => b.toString(16).padStart(2, "0")).join("");
+  return `${saltHex}:${hashHex}`;
+}
+
+async function verifyPw(password: string, stored: string): Promise<boolean> {
+  const [saltHex, hashHex] = stored.split(":");
+  if (!saltHex || !hashHex) return false;
+  const salt = new Uint8Array(saltHex.match(/.{2}/g)!.map(b => parseInt(b, 16)));
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveBits"]
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" }, key, 256
+  );
+  const computed = Array.from(new Uint8Array(bits)).map(b => b.toString(16).padStart(2, "0")).join("");
+  return computed === hashHex;
 }
 
 serve(async (req) => {
@@ -30,7 +59,7 @@ serve(async (req) => {
       const { username, password } = payload;
       const { data: existing } = await supabase.from("master_admin").select("id").limit(1).maybeSingle();
       if (existing) return json({ error: "Master admin already exists" }, 409);
-      const hash = await bcrypt.hash(password);
+      const hash = await hashPw(password);
       const { data, error } = await supabase
         .from("master_admin")
         .insert({ username, password_hash: hash })
@@ -51,7 +80,7 @@ serve(async (req) => {
 
       if (error || !admin) return json({ error: "Invalid credentials" }, 401);
 
-      const valid = await bcrypt.compare(password, admin.password_hash);
+      const valid = await verifyPw(password, admin.password_hash);
       if (!valid) return json({ error: "Invalid credentials" }, 401);
 
       return json({ id: admin.id, username: admin.username });
@@ -61,7 +90,6 @@ serve(async (req) => {
     if (action === "create_user") {
       const { admin_id, username, password, full_name } = payload;
 
-      // Verify admin exists
       const { data: admin } = await supabase
         .from("master_admin")
         .select("id")
@@ -69,7 +97,7 @@ serve(async (req) => {
         .maybeSingle();
       if (!admin) return json({ error: "Unauthorized" }, 403);
 
-      const hash = await bcrypt.hash(password);
+      const hash = await hashPw(password);
       const { data, error } = await supabase
         .from("app_users")
         .insert({ username, password_hash: hash, full_name, created_by: admin_id })
@@ -109,7 +137,7 @@ serve(async (req) => {
     // ── RESET PASSWORD ──
     if (action === "reset_password") {
       const { user_id, new_password } = payload;
-      const hash = await bcrypt.hash(new_password);
+      const hash = await hashPw(new_password);
       const { error } = await supabase
         .from("app_users")
         .update({ password_hash: hash })
@@ -141,7 +169,7 @@ serve(async (req) => {
       if (error || !user) return json({ error: "Invalid credentials" }, 401);
       if (!user.is_active) return json({ error: "Account disabled. Contact your administrator." }, 403);
 
-      const valid = await bcrypt.compare(password, user.password_hash);
+      const valid = await verifyPw(password, user.password_hash);
       if (!valid) return json({ error: "Invalid credentials" }, 401);
 
       return json({
