@@ -11,6 +11,15 @@ interface Props {
   readOnly?: boolean;
 }
 
+function seededShuffle(arr: string[]): string[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 function makeDndId(ci: number, ri: number, si: number) {
   return `seat-${ci}-${ri}-${si}`;
 }
@@ -100,7 +109,7 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
 
   const handleReshuffleThis = useCallback(() => {
     if (!activeResult || !activeLayout) return;
-    const shuffledGroups = activeResult.groups.map(g => ({ ...g, members: [...g.members].sort(() => Math.random() - 0.5) }));
+    const shuffledGroups = activeResult.groups.map(g => ({ ...g, members: seededShuffle(g.members) }));
     let newResult: Partial<RoomResult>;
     if (shuffleType === "normal") {
       const r = normalShuffle(shuffledGroups, activeLayout);
@@ -118,7 +127,7 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
 
   const handleReshuffleAll = useCallback(async () => {
     const results = await distributeStudentsAcrossRooms(
-      allGroups.map(g => ({ ...g, members: [...g.members].sort(() => Math.random() - 0.5) })),
+      allGroups.map(g => ({ ...g, members: seededShuffle(g.members) })),
       rooms, shuffleType
     );
     setRoomResults(results);
@@ -191,7 +200,7 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
       {/* Room grid */}
       <div className="overflow-x-auto mt-6">
         <div
-          className="min-w-max mx-auto"
+          className="min-w-max mx-auto animate-fade-in"
           style={{ background: "hsl(var(--card))", borderRadius: 16, padding: 24, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}
           key={animKey}
         >
