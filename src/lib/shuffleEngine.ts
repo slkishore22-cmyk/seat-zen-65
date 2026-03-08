@@ -923,7 +923,7 @@ export async function distributeStudentsAcrossRooms(
 
     if (shuffleType === "normal") {
       const r = normalShuffle(roomGroups, layout);
-      seats = r.seats;
+      seats = await fixConflictsWithAI(r.seats, layout, roomGroups);
       overflow = r.overflow;
       interleaveInfo = r.interleaveInfo;
     } else {

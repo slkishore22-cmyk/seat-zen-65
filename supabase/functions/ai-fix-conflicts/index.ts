@@ -10,63 +10,40 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { grid, layout, shuffleType, conflicts } = await req.json();
+    const { grid, layout, shuffleType, conflicts, groups } = await req.json();
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
-    // If no conflicts, return empty swaps
     if (!conflicts || conflicts.length === 0) {
       return new Response(JSON.stringify({ swaps: [], explanation: "No conflicts to fix." }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const systemPrompt = shuffleType === "normal"
-      ? `You are an exam seating conflict resolver. You receive a seating grid where students are arranged in columns and rows. 
+    const systemPrompt = `You are an exam seating conflict resolver.
 
-RULE: In "Normal Shuffle", students from the SAME department should NOT sit side-by-side (horizontally adjacent). Same department students sitting vertically (one behind another in the same sub-column) is ALLOWED and expected.
+You follow ONLY these rules. No other rules. No assumptions.
 
-You receive:
-- "grid": array of seats, each with index, rollNumber, groupId, columnIndex, rowIndex, subColumnIndex
-- "layout": the room column configuration
-- "conflicts": list of seat indices that have horizontal same-department adjacency issues
+RULE 1: Same department students sit vertically back to back in the same sub-column. This is CORRECT. Do not change this. Do not treat vertical same-dept as a conflict.
 
-Your job: suggest SWAPS between seats to eliminate horizontal same-department adjacencies. 
-- Only swap rollNumber and groupId between two seats (keep seat positions fixed)
-- Minimize the number of swaps
-- Never remove or add students
-- Only fix the specific conflicts listed
-- Prefer swapping a conflicting seat with a non-conflicting seat from a DIFFERENT row or column that won't create new conflicts`
+RULE 2: Same department students must never sit side by side horizontally in the same row. This is the ONLY conflict to fix.
 
-      : `You are an exam seating conflict resolver. You receive a seating grid where students are arranged for maximum anti-copying security.
+HOW TO FIX: Find two seats in the same row that have the same department next to each other. Find any other seat in the entire grid that has a different department. Swap them. Repeat until no horizontal conflicts remain. Maximum 100 swap attempts then stop.
 
-RULE: In "University Shuffle", NO two adjacent students (horizontally OR vertically) should be from the same department.
+RULE 3 — NEVER BREAK: Never leave any seat empty. Never create overflow. Every student must be placed. If no perfect swap exists, place the student anyway even if it creates a conflict.`;
 
-You receive:
-- "grid": array of seats, each with index, rollNumber, groupId, columnIndex, rowIndex, subColumnIndex  
-- "layout": the room column configuration
-- "conflicts": list of seat indices that have same-department adjacency issues (horizontal or vertical)
-
-Your job: suggest SWAPS between seats to eliminate ALL same-department adjacencies (horizontal AND vertical).
-- Only swap rollNumber and groupId between two seats (keep seat positions fixed)
-- Minimize the number of swaps
-- Never remove or add students
-- Only fix the specific conflicts listed
-- Prefer swapping a conflicting seat with a non-conflicting seat that won't create new conflicts`;
-
-    // Compact the grid - only send occupied seats with essential info
     const compactGrid = grid
       .map((s: any, i: number) => s.rollNumber ? { i, r: s.rollNumber, g: s.groupId, c: s.columnIndex, row: s.rowIndex, sc: s.subColumnIndex } : null)
       .filter(Boolean);
 
-    const userPrompt = `Here is the seating grid (occupied seats only):
-${JSON.stringify(compactGrid)}
-
-Layout (columns config): ${JSON.stringify(layout)}
-
+    const userPrompt = `Fix horizontal same-dept conflicts only.
+Vertical same-dept is correct, do not touch.
+Never leave empty seats.
+Grid: ${JSON.stringify(compactGrid)}
+Groups: ${JSON.stringify(groups)}
+Layout: ${JSON.stringify(layout)}
 Conflict seat indices: ${JSON.stringify(conflicts)}
-
-Please suggest swaps to fix these conflicts. Each swap exchanges the student (rollNumber + groupId) between two seat indices.`;
+Return only the fixed grid as JSON.`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -85,7 +62,7 @@ Please suggest swaps to fix these conflicts. Each swap exchanges the student (ro
             type: "function",
             function: {
               name: "apply_swaps",
-              description: "Apply seat swaps to fix conflicts in the seating arrangement",
+              description: "Apply seat swaps to fix horizontal same-department conflicts. Max 100 swaps.",
               parameters: {
                 type: "object",
                 properties: {
@@ -141,13 +118,12 @@ Please suggest swaps to fix these conflicts. Each swap exchanges the student (ro
 
     const result = JSON.parse(toolCall.function.arguments);
 
-    // Validate swaps - ensure indices are within bounds
     const validSwaps = (result.swaps || []).filter((s: any) =>
       typeof s.fromIndex === "number" && typeof s.toIndex === "number" &&
       s.fromIndex >= 0 && s.toIndex >= 0 &&
       s.fromIndex < grid.length && s.toIndex < grid.length &&
       s.fromIndex !== s.toIndex
-    );
+    ).slice(0, 100); // Max 100 swaps
 
     return new Response(JSON.stringify({ swaps: validSwaps, explanation: result.explanation || "" }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
