@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import * as bcrypt from "https://deno.land/x/bcrypt@v0.4.1/mod.ts";
+import { hash } from "https://deno.land/x/bcrypt@v0.4.1/src/main.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -14,7 +14,7 @@ serve(async (req) => {
 
   try {
     const { username, password } = await req.json();
-    const hash = await bcrypt.hash(password);
+    const passwordHash = await hash(password);
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -23,12 +23,12 @@ serve(async (req) => {
 
     const { error } = await supabase.from("master_admin").insert({
       username,
-      password_hash: hash,
+      password_hash: passwordHash,
     });
 
     if (error) throw error;
 
-    return new Response(JSON.stringify({ success: true, hash }), {
+    return new Response(JSON.stringify({ success: true }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (e) {
