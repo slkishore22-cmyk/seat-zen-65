@@ -3,7 +3,7 @@ import { getConflictIndices, detectSequenceGaps, normalShuffle, universityShuffl
 import { useExamSession, SavedSession } from "@/hooks/useExamSession";
 import SeatCard from "@/components/SeatCard";
 import ColorLegend from "@/components/ColorLegend";
-import { AlertTriangle, Shuffle, Save, Plus, Printer, Pencil, Undo2 } from "lucide-react";
+import { Shuffle, Save, Plus, Printer, Pencil, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 
 interface Props {
@@ -104,10 +104,10 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
     let newResult: Partial<RoomResult>;
     if (shuffleType === "normal") {
       const r = normalShuffle(shuffledGroups, activeLayout);
-      newResult = { seats: r.seats, overflow: r.overflow, conflictCount: 0, studentCount: r.seats.filter(s => s.rollNumber).length, interleaveInfo: r.interleaveInfo };
+      newResult = { seats: r.seats, conflictCount: 0, studentCount: r.seats.filter(s => s.rollNumber).length, interleaveInfo: r.interleaveInfo };
     } else {
       const r = universityShuffle(shuffledGroups, activeLayout);
-      newResult = { seats: r.seats, overflow: r.overflow, conflictCount: r.conflictCount, studentCount: r.seats.filter(s => s.rollNumber).length };
+      newResult = { seats: r.seats, conflictCount: r.conflictCount, studentCount: r.seats.filter(s => s.rollNumber).length };
     }
     const newResults = [...roomResults];
     newResults[activeRoomTab] = { ...newResults[activeRoomTab], ...newResult };
@@ -245,13 +245,6 @@ const Step5AllRooms = ({ onNewExam, readOnly = false }: Props) => {
         </div>
       </div>
 
-      {activeResult.overflow.length > 0 && (
-        <div className="glass-card p-5 mt-8 max-w-3xl mx-auto">
-          <h3 className="text-sm font-semibold mb-2 flex items-center gap-1.5"><AlertTriangle size={14} className="text-destructive" /> Overflow Students ({activeResult.overflow.length})</h3>
-          <p className="text-xs text-muted-foreground mb-2">These students could not fit in this room:</p>
-          <div className="flex flex-wrap gap-1.5">{activeResult.overflow.map(rn => <span key={rn} className="px-2 py-0.5 rounded-pill bg-secondary text-xs font-medium">{rn}</span>)}</div>
-        </div>
-      )}
 
       {!readOnly && (
         <>

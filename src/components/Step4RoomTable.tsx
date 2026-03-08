@@ -4,17 +4,15 @@ import { ShuffleType } from "@/pages/Index";
 import SeatCard from "@/components/SeatCard";
 import ColorLegend from "@/components/ColorLegend";
 import ActionBar from "@/components/ActionBar";
-import { AlertTriangle, X, Pencil, Undo2 } from "lucide-react";
+import { X, Pencil, Undo2 } from "lucide-react";
 
 interface Props {
   layout: RoomLayout;
   groups: Group[];
   seatMap: Seat[];
   setSeatMap: (s: Seat[]) => void;
-  overflow: string[];
   conflictCount: number;
   setConflictCount: (n: number) => void;
-  setOverflow: (o: string[]) => void;
   shuffleType: ShuffleType;
   onNewRoom: () => void;
   onSave: (name: string) => void;
@@ -39,8 +37,8 @@ function seatFlatIndex(layout: RoomLayout, ci: number, ri: number, si: number): 
 }
 
 const Step4RoomTable = ({
-  layout, groups, seatMap, setSeatMap, overflow, conflictCount,
-  setConflictCount, setOverflow, shuffleType, onNewRoom, onSave, readOnly,
+  layout, groups, seatMap, setSeatMap, conflictCount,
+  setConflictCount, shuffleType, onNewRoom, onSave, readOnly,
   interleaveInfo,
 }: Props) => {
   const [animKey, setAnimKey] = useState(0);
@@ -105,13 +103,13 @@ const Step4RoomTable = ({
     const shuffledGroups = groups.map(g => ({ ...g, members: [...g.members].sort(() => Math.random() - 0.5) }));
     if (shuffleType === "normal") {
       const result = normalShuffle(shuffledGroups, layout);
-      setSeatMap(result.seats); setOverflow(result.overflow); setConflictCount(0); setLocalInterleaveInfo(result.interleaveInfo);
+      setSeatMap(result.seats); setConflictCount(0); setLocalInterleaveInfo(result.interleaveInfo);
     } else {
       const r = universityShuffle(shuffledGroups, layout);
-      setSeatMap(r.seats); setOverflow(r.overflow); setConflictCount(r.conflictCount);
+      setSeatMap(r.seats); setConflictCount(r.conflictCount);
     }
     setAnimKey(k => k + 1); setShowGapWarning(true); setHistory([]);
-  }, [groups, layout, shuffleType, setSeatMap, setOverflow, setConflictCount]);
+  }, [groups, layout, shuffleType, setSeatMap, setConflictCount]);
 
   const handlePrint = useCallback(() => {
     const printWindow = window.open("", "_blank");
@@ -237,17 +235,6 @@ const Step4RoomTable = ({
         </div>
       </div>
 
-      {overflow.length > 0 && (
-        <div className="glass-card p-5 mt-8 max-w-3xl mx-auto">
-          <h3 className="text-sm font-semibold mb-2 flex items-center gap-1.5">
-            <AlertTriangle size={14} className="text-destructive" /> Overflow Students ({overflow.length})
-          </h3>
-          <p className="text-xs text-muted-foreground mb-2">These students could not fit in the room:</p>
-          <div className="flex flex-wrap gap-1.5">
-            {overflow.map(rn => <span key={rn} className="px-2 py-0.5 rounded-pill bg-secondary text-xs font-medium">{rn}</span>)}
-          </div>
-        </div>
-      )}
 
       {!readOnly && (
         <>

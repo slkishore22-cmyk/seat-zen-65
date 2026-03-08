@@ -7,7 +7,7 @@ interface Props {
   shuffleType: ShuffleType;
   setShuffleType: (t: ShuffleType) => void;
   layout: RoomLayout;
-  onGenerate: (seats: Seat[], overflow: string[], conflictCount: number) => void;
+  onGenerate: (seats: Seat[], conflictCount: number) => void;
   onBack: () => void;
 }
 
@@ -42,10 +42,10 @@ const Step3ShuffleType = ({ groups, shuffleType, setShuffleType, layout, onGener
   const handleGenerate = () => {
     if (shuffleType === "normal") {
       const result = normalShuffle(groups, layout);
-      onGenerate(result.seats, result.overflow, 0);
+      onGenerate(result.seats, 0);
     } else {
       const result = universityShuffle(groups, layout);
-      onGenerate(result.seats, result.overflow, result.conflictCount);
+      onGenerate(result.seats, result.conflictCount);
     }
   };
 
