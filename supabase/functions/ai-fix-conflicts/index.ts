@@ -6,44 +6,103 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const SYSTEM_PROMPT = `You are an exam seating arrangement validator.
+
+You receive a completed seating grid and must fix only horizontal conflicts.
+
+UNDERSTAND THE GRID STRUCTURE FIRST:
+
+The grid is a flat array of seat objects. Each seat has: columnIndex, rowIndex, subColumnIndex, rollNumber, groupId, color, hex.
+
+Columns are the main physical columns in the room.
+Rows are the horizontal rows of seats (R1, R2...).
+SubColumns are the individual seat positions within each row inside one column.
+
+WHAT IS CORRECT — NEVER CHANGE THIS:
+
+Same department students sitting in the SAME subColumn across different rows is CORRECT.
+
+Example:
+  Col1 R1 SC1: 23A001  ← correct
+  Col1 R2 SC1: 23A002  ← correct, same dept below
+  Col1 R3 SC1: 23A003  ← correct, same dept below
+
+This is the intended back-to-back vertical pattern.
+Do NOT treat this as a conflict.
+Do NOT move these students.
+
+WHAT IS A CONFLICT — ONLY FIX THIS:
+
+Two seats with the same groupId that are in the SAME row AND directly next to each other in adjacent subColumns.
+
+Example:
+  Col1 R1 SC1: 23A001  ← conflict
+  Col1 R1 SC2: 23A007  ← conflict, same dept beside
+
+These two are side by side horizontally.
+This is the ONLY thing you must fix.
+
+HOW TO FIX A CONFLICT:
+
+Step 1: Scan every row in every column.
+Step 2: Find any two adjacent seats (SC and SC+1) in the same row that share the same groupId.
+Step 3: For the second seat (SC+1), find a SWAP CANDIDATE anywhere in the entire grid that:
+  - Has a different groupId than the conflict seat
+  - Has a different groupId than its own left neighbor
+  - Has a different groupId than its own right neighbor
+  - Has a different groupId than the first conflict seat
+Step 4: Swap the two seats (swap rollNumber, groupId, color, hex).
+Step 5: Scan again from the beginning.
+Step 6: Repeat maximum 200 times then stop.
+
+WHEN NO PERFECT SWAP EXISTS:
+
+If after searching the entire grid no perfect swap candidate exists for a conflict seat, find the BEST candidate — the one that creates the fewest new conflicts after swapping.
+Always swap even if imperfect.
+Never leave a conflict unfixed if any swap helps.
+
+ABSOLUTE RULES THAT CANNOT BE BROKEN:
+
+1. Never remove any student from the grid.
+2. Never add any student to the grid.
+3. Never leave any seat empty that was filled.
+4. Never fill any seat that was empty.
+5. Total student count before must equal after.
+6. Every rollNumber must appear exactly once.
+7. No student can appear twice.
+8. Do not change groupId assignments — if you move 23A001 to a new position, its groupId stays the same.
+
+VERIFY BEFORE RETURNING:
+
+Count total non-empty seats in output.
+Must equal total non-empty seats in input.
+If not equal, you made an error — fix it.`;
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { grid, layout, shuffleType, conflicts, groups } = await req.json();
+    const { grid, layout, groups, conflicts, conflictPositions, totalStudents } = await req.json();
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
     if (!conflicts || conflicts.length === 0) {
-      return new Response(JSON.stringify({ swaps: [], explanation: "No conflicts to fix." }), {
+      return new Response(JSON.stringify({ fixedGrid: null }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const systemPrompt = `You are an exam seating conflict resolver.
+    const userPrompt = `Current grid with conflicts:
+${JSON.stringify(grid)}
 
-You follow ONLY these rules. No other rules. No assumptions.
+Group definitions:
+${JSON.stringify(groups)}
 
-RULE 1: Same department students sit vertically back to back in the same sub-column. This is CORRECT. Do not change this. Do not treat vertical same-dept as a conflict.
+Total students: ${totalStudents}
 
-RULE 2: Same department students must never sit side by side horizontally in the same row. This is the ONLY conflict to fix.
+Conflict positions: ${JSON.stringify(conflictPositions)}
 
-HOW TO FIX: Find two seats in the same row that have the same department next to each other. Find any other seat in the entire grid that has a different department. Swap them. Repeat until no horizontal conflicts remain. Maximum 100 swap attempts then stop.
-
-RULE 3 — NEVER BREAK: Never leave any seat empty. Never create overflow. Every student must be placed. If no perfect swap exists, place the student anyway even if it creates a conflict.`;
-
-    const compactGrid = grid
-      .map((s: any, i: number) => s.rollNumber ? { i, r: s.rollNumber, g: s.groupId, c: s.columnIndex, row: s.rowIndex, sc: s.subColumnIndex } : null)
-      .filter(Boolean);
-
-    const userPrompt = `Fix horizontal same-dept conflicts only.
-Vertical same-dept is correct, do not touch.
-Never leave empty seats.
-Grid: ${JSON.stringify(compactGrid)}
-Groups: ${JSON.stringify(groups)}
-Layout: ${JSON.stringify(layout)}
-Conflict seat indices: ${JSON.stringify(conflicts)}
-Return only the fixed grid as JSON.`;
+Return ONLY the fixed grid as a valid JSON array. Same structure as the input grid. No explanation. No markdown. No code blocks. Just the raw JSON array starting with [ and ending with ].`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -54,38 +113,10 @@ Return only the fixed grid as JSON.`;
       body: JSON.stringify({
         model: "google/gemini-3-flash-preview",
         messages: [
-          { role: "system", content: systemPrompt },
+          { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: userPrompt },
         ],
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: "apply_swaps",
-              description: "Apply seat swaps to fix horizontal same-department conflicts. Max 100 swaps.",
-              parameters: {
-                type: "object",
-                properties: {
-                  swaps: {
-                    type: "array",
-                    description: "Array of swap operations. Each swap exchanges students between two seat indices.",
-                    items: {
-                      type: "object",
-                      properties: {
-                        fromIndex: { type: "number", description: "First seat index to swap" },
-                        toIndex: { type: "number", description: "Second seat index to swap" },
-                      },
-                      required: ["fromIndex", "toIndex"],
-                    },
-                  },
-                  explanation: { type: "string", description: "Brief explanation of what was fixed" },
-                },
-                required: ["swaps", "explanation"],
-              },
-            },
-          },
-        ],
-        tool_choice: { type: "function", function: { name: "apply_swaps" } },
+        temperature: 0,
       }),
     });
 
@@ -108,26 +139,49 @@ Return only the fixed grid as JSON.`;
     }
 
     const data = await response.json();
-    const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
+    const content = data.choices?.[0]?.message?.content;
 
-    if (!toolCall?.function?.arguments) {
-      return new Response(JSON.stringify({ swaps: [], explanation: "AI could not determine swaps" }), {
+    if (!content) {
+      return new Response(JSON.stringify({ fixedGrid: null }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const result = JSON.parse(toolCall.function.arguments);
+    // Extract JSON array from response (strip markdown fences if present)
+    let jsonStr = content.trim();
+    if (jsonStr.startsWith("```")) {
+      jsonStr = jsonStr.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "");
+    }
 
-    const validSwaps = (result.swaps || []).filter((s: any) =>
-      typeof s.fromIndex === "number" && typeof s.toIndex === "number" &&
-      s.fromIndex >= 0 && s.toIndex >= 0 &&
-      s.fromIndex < grid.length && s.toIndex < grid.length &&
-      s.fromIndex !== s.toIndex
-    ).slice(0, 100); // Max 100 swaps
+    try {
+      const fixedGrid = JSON.parse(jsonStr);
+      if (!Array.isArray(fixedGrid)) {
+        console.error("AI response is not an array");
+        return new Response(JSON.stringify({ fixedGrid: null }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
 
-    return new Response(JSON.stringify({ swaps: validSwaps, explanation: result.explanation || "" }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+      // Server-side validation: count filled seats
+      const originalFilled = grid.filter((s: any) => s.rollNumber).length;
+      const fixedFilled = fixedGrid.filter((s: any) => s.rollNumber).length;
+
+      if (originalFilled !== fixedFilled) {
+        console.error(`Seat count mismatch: original=${originalFilled}, fixed=${fixedFilled}`);
+        return new Response(JSON.stringify({ fixedGrid: null }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      return new Response(JSON.stringify({ fixedGrid }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    } catch (parseErr) {
+      console.error("Failed to parse AI response as JSON:", parseErr);
+      return new Response(JSON.stringify({ fixedGrid: null }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
   } catch (e) {
     console.error("ai-fix-conflicts error:", e);
     return new Response(
